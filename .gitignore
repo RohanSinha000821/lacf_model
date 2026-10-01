@@ -1,0 +1,19 @@
+# Local experiment outputs and cached datasets
+/outputs/
+/data/
+/cache/
+*.pt
+*.pth
+*.ckpt
+*.wav
+*.flac
+*.mp3
+*.ogg
+
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+*.log
