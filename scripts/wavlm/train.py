@@ -28,7 +28,8 @@ MODEL_NAME = "microsoft/wavlm-base"
 BATCH_SIZE = 64
 EVAL_BATCH_SIZE = 1
 GRADIENT_ACCUMULATION_STEPS = 1
-NUM_WORKERS = 8
+NUM_WORKERS = 16
+EVAL_NUM_WORKERS = 4
 PREFETCH_FACTOR = 2
 PIN_MEMORY = True
 
@@ -87,10 +88,20 @@ def parse_args() -> argparse.Namespace:
         help="Batches to prefetch per worker (ignored when --num-workers is 0)",
     )
 
+    parser.add_argument(
+        "--eval-workers",
+        type=int,
+        default=EVAL_NUM_WORKERS,
+        help="Data-loader workers for each source-development domain",
+    )
+
     args = parser.parse_args()
 
     if args.num_workers < 0:
         parser.error("--num-workers must be non-negative")
+
+    if args.eval_workers < 0:
+        parser.error("--eval-workers must be non-negative")
 
     if args.prefetch_factor < 1:
         parser.error("--prefetch-factor must be positive")
@@ -384,7 +395,7 @@ def main() -> None:
         ] = make_wavlm_eval_loader(
             dataset,
             batch_size=EVAL_BATCH_SIZE,
-            num_workers=args.num_workers,
+            num_workers=args.eval_workers,
             prefetch_factor=args.prefetch_factor,
             pin_memory=PIN_MEMORY,
         )
@@ -710,6 +721,9 @@ def main() -> None:
 
                 "num_workers":
                     args.num_workers,
+
+                "eval_workers":
+                    args.eval_workers,
 
                 "prefetch_factor":
                     args.prefetch_factor,

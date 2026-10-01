@@ -23,7 +23,7 @@ target from the original read-only dataset root.
 
 ```bash
 mkdir -p outputs/wavlm/f1/1234
-python -u scripts/wavlm/train.py --fold f1 --seed 1234 --data-root /mnt/drive/audio-deepfake-cache 2>&1 | tee -a outputs/wavlm/f1/1234/training.log
+python -u scripts/wavlm/train.py --fold f1 --seed 1234 --data-root /mnt/drive/audio-deepfake-cache --num-workers 16 --eval-workers 4 --prefetch-factor 2 2>&1 | tee -a outputs/wavlm/f1/1234/training.log
 python -u scripts/wavlm/evaluate.py --fold f1 --seed 1234 --source-data-root /mnt/drive/audio-deepfake-cache --target-data-root /mnt/salt/datasets/audio-deepfake
 ```
 
