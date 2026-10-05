@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from audio_deepfake_detection.protocol import FOLDS
+from audio_deepfake_detection.protocol import FOLDS, final_seeds_for
 
 
 def flat_metrics(report: dict) -> dict[str, float]:
@@ -17,35 +17,76 @@ def flat_metrics(report: dict) -> dict[str, float]:
         "target.auroc": report["target"]["auroc"],
     }
     for branch in ("strict_raw_transfer", "unlabeled_zscore_transfer"):
+        if (set(report[branch]["target_operating_points"]) != {"1%", "5%", "10%"}
+                or set(report[branch]["thresholds"]) != {"1%", "5%", "10%"}):
+            raise ValueError(f"Unexpected operating rates in {branch}")
         for rate, operating in report[branch]["target_operating_points"].items():
+            if set(operating) != {"apcer", "bpcer", "acer"}:
+                raise ValueError(f"Unexpected operating metrics in {branch}/{rate}")
             for metric in ("apcer", "bpcer", "acer"):
                 values[f"{branch}.{rate}.{metric}"] = operating[metric]
+    if any(not isinstance(value, (int, float)) or not np.isfinite(value) or not 0 <= value <= 1
+           for value in values.values()):
+        raise ValueError("Metrics must be finite fractions in [0, 1]")
     return values
 
 
-def summarize(root: Path, model: str, seeds: tuple[int, ...]) -> dict:
-    if len(seeds) < 2:
-        raise ValueError("At least two seeds are needed for sample standard deviation")
+def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, non_final=False) -> dict:
+    required_seeds = final_seeds_for(model)
+    if seeds is None:
+        seeds = required_seeds
+    if not non_final and seeds != required_seeds:
+        raise ValueError(f"Publication summary for {model} requires exactly seeds {required_seeds}; use non-final mode for exploration")
+    if not seeds or len(set(seeds)) != len(seeds) or any(type(seed) is not int or seed < 0 for seed in seeds):
+        raise ValueError("At least one distinct non-negative seed is required")
     by_fold = {}
+    expected_metric_names = None
     for fold_name, fold in FOLDS.items():
         runs = []
         for seed in seeds:
             path = root / model / fold_name / str(seed) / "metrics.json"
             report = json.loads(path.read_text(encoding="utf-8"))
-            if report["fold"] != fold_name or report["target_domain"] != fold["target"]:
+            if (report.get("fold") != fold_name or report.get("target_domain") != fold["target"]
+                    or report.get("target_split") != fold["target_split"]
+                    or report.get("sources") != list(fold["sources"])):
                 raise ValueError(f"Wrong fold/target in {path}")
-            if "seed" in report and report["seed"] != seed:
-                raise ValueError(f"Wrong seed in {path}")
-            if "confidence_intervals" not in report:
+            if type(report.get("seed")) is not int or report["seed"] != seed:
+                raise ValueError(f"Missing or wrong seed in {path}")
+            if report.get("model") != model:
+                raise ValueError(f"Missing or wrong model in {path}")
+            ci = report.get("confidence_intervals", {})
+            if not ci.get("intervals") or ci.get("resamples", 0) <= 0:
                 raise ValueError(f"Final run lacks confidence intervals: {path}")
-            runs.append(flat_metrics(report))
+            values = flat_metrics(report)
+            ci_names = {name.removeprefix("target.").replace("strict_raw_transfer.", "strict_raw.")
+                        .replace("unlabeled_zscore_transfer.", "unlabeled_zscore.") for name in values}
+            if set(ci["intervals"]) != ci_names:
+                raise ValueError(f"Confidence interval metric structure differs in {path}")
+            for interval in ci["intervals"].values():
+                if (not isinstance(interval, list) or len(interval) != 2
+                        or any(not isinstance(value, (int, float)) or not np.isfinite(value) for value in interval)
+                        or not 0 <= interval[0] <= interval[1] <= 1):
+                    raise ValueError(f"Invalid confidence interval in {path}")
+            if (ci.get("resampling_unit") != "target_observation" or ci.get("class_stratified") is not True
+                    or ci.get("source_thresholds_fixed_within_resamples") is not True
+                    or ci.get("source_normalization_stats_fixed_within_resamples") is not True
+                    or ci.get("target_zscore_stats_fixed_within_resamples") is not True
+                    or ci.get("method") != "class-stratified percentile bootstrap"
+                    or ci.get("percentiles") != [2.5, 97.5]
+                    or ci.get("confidence_level") != 0.95 or ci.get("seed") != 2026):
+                raise ValueError(f"Confidence interval assumptions differ in {path}")
+            if expected_metric_names is None:
+                expected_metric_names = values.keys()
+            if values.keys() != expected_metric_names:
+                raise ValueError(f"Metric structures differ in {path}")
+            runs.append(values)
         metric_names = runs[0].keys()
         if any(run.keys() != metric_names for run in runs[1:]):
             raise ValueError(f"Metric columns differ across {fold_name} seeds")
         by_fold[fold_name] = {
             name: {
                 "mean": float(np.mean([run[name] for run in runs])),
-                "sample_std": float(np.std([run[name] for run in runs], ddof=1)),
+                "sample_std": float(np.std([run[name] for run in runs], ddof=1)) if len(runs) > 1 else None,
             }
             for name in metric_names
         }
@@ -56,20 +97,27 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...]) -> dict:
     return {
         "model": model,
         "seeds": list(seeds),
+        "training_seed_count": len(seeds),
+        "across_seed_variability_estimated": len(seeds) > 1,
+        "seed_policy": "single_seed_compute_budget" if model == "wavlm_bs96" and seeds == (1234,) else "multi_seed" if len(seeds) > 1 else "single_seed_exploratory",
         "per_fold": by_fold,
         "equal_weight_four_fold_mean": equal_fold_mean,
         "target_datasets_pooled": False,
+        "publication_summary": not non_final,
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Summarize three-seed, four-fold LODO results")
+    parser = argparse.ArgumentParser(description="Summarize four-fold LODO results using the model's declared seed policy")
     parser.add_argument("--model", required=True)
     parser.add_argument("--root", type=Path, default=Path("outputs"))
-    parser.add_argument("--seeds", type=int, nargs="+", default=(1234, 2345, 3456))
+    parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96; three protocol seeds for other models")
+    parser.add_argument("--non-final", action="store_true", help="Allow exploratory seed lists; write exploratory_summary.json")
     args = parser.parse_args()
-    output = args.root / args.model / "summary.json"
-    summary = summarize(args.root, args.model, tuple(args.seeds))
+    output = args.root / args.model / ("exploratory_summary.json" if args.non_final else "summary.json")
+    if output.exists():
+        raise FileExistsError(f"Summary already exists; refusing to overwrite: {output}")
+    summary = summarize(args.root, args.model, tuple(args.seeds) if args.seeds is not None else None, non_final=args.non_final)
     output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Saved {output}")
 

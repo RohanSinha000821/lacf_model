@@ -1,10 +1,14 @@
-# Cross-domain experiment protocol (v1)
+# Cross-domain experiment protocol (v3)
 
-Status: protocol definition before further model implementation or final comparison runs. This document records the decisions for the main study; the interrupted WavLM F1 run is a preliminary run, not a result in the final comparison table. The latest explicit project decision takes precedence over older planning documents. In particular, the configured WavLM training batch size is now 64; training remains stopped. A saved checkpoint from a 96- or 128-example run is not a valid continuation of a fresh batch-64 experiment unless the change and optimizer state are explicitly handled and the run is labeled a pilot.
+Status updated 2026-10-02: fairness safeguards strengthened with project-owner approval before recorded target evaluation. The fresh batch-64 WavLM F1 seed-1234 run finished through early stopping at epoch 17; its best source-selected checkpoint is epoch 12. Earlier interrupted batch-96/128 runs remain pilots, not valid continuations of the batch-64 recipe. No target score CSV, target metrics report, or score manifest was found in project outputs at this update. The latest explicit project decision takes precedence over older planning documents.
+
+Latest explicit batch decision on 2026-10-02: use **batch 96** for the new WavLM study family `wavlm_bs96`, keeping optimizer, learning rates, scheduler, weights, patience, precision, and loader settings unchanged. One synthetic full-length batch-96 forward/backward/Adam step passed with finite loss and 27.78 GiB peak reserved CUDA memory. This establishes memory feasibility, not target performance or guaranteed GPU saturation. Queue F2, F3, F4 sequentially at seed 1234. Preserve the completed batch-64 F1 under `outputs/wavlm/f1/1234/` as a separate source-only recipe/pilot record. **F1 must be retrained at batch 96 before the four-fold batch-96 publication summary**; do not mix its old checkpoint into that family. Changing batch before any recorded target result is a declared project decision; no target informed it.
+
+Latest explicit seed decision, 2026-10-05: due to training time, **WavLM uses seed 1234 only** across the four batch-96 folds. Seeds 2345/3456 will not be trained for this model. Report this compute-budget limitation explicitly: no across-seed standard deviation or claim of seed robustness is available. Retain the shared target metrics and fixed-model target-bootstrap intervals, which do not estimate training randomness. Other models retain the three-seed plan unless the owner changes them separately. This decision does not waive the comparison-wide target freeze, complete an interrupted fold, or authorize mixing batch-64 and batch-96 checkpoints.
 
 ## Research question and comparison set
 
-Measure how detectors trained on three source datasets transfer to a fourth, unseen dataset. The main comparison set is WavLM-WA, AASIST, multi-level SSL feature gating, SAM-AASIST, LHCC, and LACF. SAM-AASIST names the optimizer and its underlying network; SAM alone is not a model. LACF-10s is the main proposed method, and LACF-4s is the duration-controlled comparison with WavLM-WA. RawNet2 and other candidates belong in an extension table only if they are subsequently given the same protocol.
+Measure how detectors trained on three source datasets transfer to a fourth, unseen dataset. The main comparison set is WavLM-WA, AASIST, multi-level SSL feature gating, SAM-AASIST, LHCC, and LACF. SAM-AASIST names the optimizer and its underlying network; SAM alone is not a model. LACF-10s is the main proposed method. A separate matched-four-second evaluation compares WavLM-WA and LACF-4s; native WavLM-WA full-utterance evaluation is not a four-second test-time control. RawNet2 and other candidates belong in an extension table only if they are subsequently given the same protocol.
 
 All trainable methods use the same source-domain membership, held-out targets, label convention, score orientation, checkpoint criterion, and final evaluator. Each method retains the waveform duration, architecture, and preprocessing needed to reproduce its method. Batch size and learning rate are model-specific because the models have different memory footprints, optimizers, and pretrained components; the numerical recipe is fixed for each model across all folds and seeds before target results are inspected.
 
@@ -23,10 +27,12 @@ Use only each source's official train split for optimization and official develo
 
 Labels are `0 = bona fide` and `1 = spoof`. Every model emits one raw score for which **larger means more spoof-like**. Two-logit models return `spoof_logit - bona_fide_logit`; one-logit models return their spoof logit. A sample is predicted spoof when `score >= threshold`.
 
+Target isolation applies across methods: target scores, metrics, errors, listening examples, or unlabeled distributions from one detector must not guide another detector's architecture, recipe, prompts, or ablations. The sole authorized use of unlabeled target score statistics is the frozen transductive evaluation branch. Complete the comparison-wide freeze gate below before final target scoring. Official source train/dev use in another prespecified fold remains permitted; it does not authorize adapting recipes to held-out evaluation results.
+
 ## Training and selection rules shared by all models
 
-- Run one source-only feasibility pilot per model, then freeze its recipe before final fold/seed runs. A pilot may establish that a batch fits in memory and that a complete source-development evaluation works. Record any recipe change and its source-only reason before final evaluation. Never revise a recipe after seeing its target result.
-- Final runs use seeds **1234, 2345, and 3456** for every model and fold. Seed Python, NumPy, PyTorch, CUDA, sampler, and DataLoader workers. Record library/CUDA versions, accelerator, code revision, and complete run configuration. Deterministic algorithms are best effort; record any nondeterministic operation rather than silently changing model behavior.
+- Run source-only feasibility pilots under the comparable tuning-effort policy below, then freeze each recipe before its final fold/seed runs. A pilot may establish batch feasibility and complete source-development evaluation. Record each adaptation and its source-only reason. Never revise recipes in response to any method's target results.
+- Final runs use seeds **1234, 2345, and 3456**, except the owner's declared WavLM compute-budget exception: **1234 only** for family `wavlm_bs96`. Disclose unequal replication when comparing models; do not treat WavLM's target-bootstrap intervals as across-seed uncertainty. Seed Python, NumPy, PyTorch, CUDA, sampler, and DataLoader workers. Record library/CUDA versions, accelerator, code revision, and complete run configuration. Deterministic algorithms are best effort; record any nondeterministic operation rather than silently changing model behavior.
 - One epoch makes as many replacement draws as there are source-training records in that fold. For the standard baseline sampler, choose a source domain uniformly, then an utterance uniformly within that domain; retain each domain's natural class ratio. Use the same sampler for all standard baselines unless the reproduced method requires a different one. LACF uses a declared domain-and-class-balanced sampler: choose domain uniformly, class uniformly, then utterance uniformly. Its A0–A10 ablations use this same sampler. Report the sampling difference when comparing LACF with a standard baseline.
 - Use the model-specific batch and optimizer recipe below. Batch means examples per optimizer device; effective batch is batch times gradient accumulation. For accumulation, divide each microbatch loss by the actual number of microbatches in that optimizer step. Do not silently change batch, accumulation, loss weights, learning-rate schedule, input duration, or augmentation between folds.
 - For WavLM on the 32-core H200-35C host, use 16 training workers, 4 workers per source-development loader, prefetch factor 2 per worker, pinned host memory, and persistent workers. These settings followed an early, pre-checkpoint F1 loader pilot that showed I/O wait with 8 workers. Other models start with source-only throughput pilots. Evaluation batch size is 1 for full-utterance or variable-length input. Fixed-length models may use a larger evaluation batch only after verifying that every per-utterance score matches the batch-1 result within a documented numerical tolerance. Loader throughput changes do not alter the sampler or model recipe.
@@ -39,8 +45,8 @@ Published-method starting values below were checked against the five supplied pa
 
 | Model | Train input; evaluation input | Batch × accumulation | Optimizer and initial LR | Schedule; maximum epochs; early-stop patience | Loss and other fixed settings |
 | --- | --- | --- | --- | --- | --- |
-| WavLM-WA | random 4 s at 16 kHz; full utterance | **64 × 1 (user-selected adaptation; paper used 32)** | Adam; WavLM `2e-5`, layer weights/classifier `5e-3` | exponential `gamma=0.95`; 100; 5 (**study choice; paper patience 50**) | weighted CE for `[bona fide, spoof] = [9, 1]`; BF16; 13 learned representation weights. Current script omits the paper's MUSAN/RIR and codec augmentation, initial-weight regularization, and layer-wise LR decay; do not call it an exact reproduction until these are implemented and verified. |
-| AASIST | 64,600 samples at 16 kHz; same fixed-length policy | **24 × 1** | Adam `1e-4`, weight decay `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | weighted CE, reorder original class weights to `[0.9, 0.1]` for this project's label convention; official architecture. Batch 24 and 100 epochs come from the authors' released configuration. |
+| WavLM-WA | random 4 s at 16 kHz; full utterance | **96 × 1 (latest project decision; paper used 32; earlier batch-64 F1 kept separately)** | Adam; WavLM `2e-5`, layer weights/classifier `5e-3` | exponential `gamma=0.95`; 100; 5 (**study choice; paper patience 50**) | weighted CE for `[bona fide, spoof] = [9, 1]`; BF16; 13 learned representation weights. Current script omits the paper's MUSAN/RIR and codec augmentation, initial-weight regularization, and layer-wise LR decay; do not call it an exact reproduction until these are implemented and verified. |
+| AASIST | random 64,600-sample train crop after 16 kHz resampling; first 64,600 samples for dev/test; repeat short audio | **24 × 1** | Adam `1e-4`, weight decay `1e-4`; FP32 | per-update cosine to `5e-6`; 100; 5 (**study-choice patience**) | weighted CE, reorder original class weights to `[0.9, 0.1]` and logits to bona-fide/spoof order; official architecture. Frequency masking off per released config; no RawBoost; no SWA under shared single-best source-only checkpoint policy. |
 | SSL feature gating | paper: full utterance at 16 kHz with dynamic batch padding; full utterance | **5 × 1** | Adam `3e-6`, weight decay `1e-4` | schedule to verify in released code; 10 per released config; 3 | XLS-R 300M with SwiGLU gating, MultiConv blocks, CKA dissimilarity and attentive pooling; weighted CE `[0.9, 0.1]`, RawBoost per paper. Paper writes `L_CE + L_CKA`. Released default config also lists `max_len: 64600`, `rawboost.algo: 0`, and `transform: null`; reconcile these with the paper's full-utterance/RawBoost description before final runs. |
 | SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, RawBoost; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
 | LHCC | exactly 64,600 samples at 16 kHz, truncated/repeated | **8 × 1** | Adam `1e-6`, weight decay `1e-4` | schedule not reported; 10; 2 | XLS-R 300M low/high-level features, AFM, DCM, weighted BCE and RawBoost. Numeric class weights are not reported. Paper uses bona fide=1/spoof=0 and `1 - p_bona_fide` as spoof score; map labels and scores explicitly. |
@@ -49,11 +55,84 @@ Published-method starting values below were checked against the five supplied pa
 
 For optional LACF-FT4, initialize from the corresponding frozen model, unfreeze only the top four WavLM Transformer blocks at `1e-5`, keep CLAP frozen, and retain the adapter/classifier LR unless a source-only pilot establishes a different fixed value. Report frozen and FT4 results separately. For optional SAM variants other than SAM-AASIST, create a separate named recipe and result row.
 
-Model-specific preprocessing is preserved in the main comparison. Also report WavLM-WA 4s against LACF-4s, and LACF-4s against LACF-10s, so the extra duration in the main LACF model is visible. Evaluation uses each model's documented input policy; no target-dependent crop choice is allowed.
+AASIST implementation status, 2026-10-04: the unmodified authors' network at commit `a04c9863f63d44471dde8a6abcb3b082b07cd1d1` is vendored with its MIT license, using random initialization rather than released trained weights. The LODO adapter corrects the upstream exact-length random-crop error, includes the last valid crop start, resamples non-16 kHz sources, and retains all epoch draws (`drop_last=False` rather than the released train loader's `True`). The upstream trainer's SWA stage and development-triggered target evaluation are not used; select the single lowest macro source-dev EER checkpoint as required above. These are disclosed study adaptations, not an exact published-run reproduction. Batch-24 CPU forward/backward/Adam feasibility passed with finite loss/gradients; CUDA memory/throughput, real-source development scoring/reload and source-only recipe validation remain pending while WavLM occupies the GPU. Loader settings start at train workers 8, dev workers 4, prefetch 2, evaluation batch 1. No target evaluation or comparison-wide freeze completion is implied by implementation readiness.
+
+Model-specific preprocessing is preserved in the main comparison. Report training, development, and test duration separately. The matched-four-second evaluation and LACF-4s versus LACF-10s duration ablation are separate prespecified tables under the safeguards below. No target-dependent crop choice is allowed.
 
 Before implementing SSL gating, resolve the paper/config conflict about full utterances versus `max_len: 64600` and RawBoost. Before implementing LHCC, resolve the paper's apparent conflict between a stated frozen XLS-R backbone and its end-to-end optimization algorithm; record the decision and treat any alternative as an ablation. For WavLM-WA, either implement the published augmentations and regularization for the primary baseline, or label the current no-augmentation implementation as a simplified baseline and avoid claiming a faithful reproduction. Keep these decisions source-only and recorded before inspecting target results.
 
 Paper-specific reading notes and source links are in `SOTA_PAPER_NOTES.md`.
+
+## Fair-comparison safeguards fixed on 2026-10-02
+
+### 1. Match physical evaluation evidence for duration claims
+
+Keep native input policies in the main table. Label the current WavLM row **4 s train / full-utterance dev and test**. For planned native LACF evaluation, fix a deterministic centered interval of at most 10 s for LACF-10s and at most 4 s for LACF-4s, on both source development and target. The WavLM and CLAP branches always receive the same interval before separate 16/48 kHz resampling.
+
+Prespecify an additional **matched 4 s test-time evidence** comparison:
+
+- Score WavLM-WA and LACF-4s on the same centered physical interval of every utterance. On the original decoded mono waveform of length `N` at rate `r`, select `L=min(N,4*r)` samples starting at `floor((N-L)/2)`, before resampling. Retain the original utterance ID. Crop selection never depends on labels, scores, model, or attack type.
+- Keep all available signal for clips shorter than four seconds. Disclose encoder-required padding/repetition; it supplies no new observed audio. Do not add multiple-crop selection or sliding-window aggregation to this controlled arm.
+- Apply the same interval policy to source-development and target scoring. Derive new raw and normalized thresholds from the controlled source-development scores; full-utterance thresholds cannot be reused for cropped targets.
+- Use each method's frozen source-selected checkpoint and record its SHA-256 and original selection policy. Verify WavLM's native source EER against its completion record first. The controlled source EER need not equal the full-utterance checkpoint-selection EER; that difference is not a reload error.
+- Store controlled scores/metrics separately under the existing output convention, using distinct result identities such as `wavlm_eval4s` and `lacf4s_eval4s`. Record duration, crop rule, training recipe, and checkpoint-selection policy. Never mix native and controlled rows in the same fold/seed summary.
+
+This controls final scoring evidence. Encoder pretraining, optimizer, and native checkpoint selection can still differ and must be disclosed. A fully matched training/development/test-duration claim would require a separately prespecified WavLM run selected on four-second source development; do not relabel the current run that way. For LACF-4s versus LACF-10s, retain the same recipe except duration and necessary microbatch/accumulation, with effective batch unchanged.
+
+The controlled exporter is planned work; the current WavLM evaluator still implements native full-utterance scoring. This policy change does not claim that controlled scoring is implemented.
+
+### 2. Make tuning opportunity and actual effort comparable
+
+Start from the paper and official implementation. Tag each recipe value `PAPER-EXACT`, `OFFICIAL-CODE`, `SOURCE-ONLY-ADAPTATION`, or `PROJECT-DECISION`; record paper/code conflicts and label simplified reproductions explicitly.
+
+Allow each principal method at most **three complete source-only candidate recipes**, including its starting recipe. Declare candidates and the intended search before executing them. Use F1 source train/dev and pilot seed 1234 for recipe selection; compare the candidates' best checkpoints using source-development macro EER, with ties retaining the earlier candidate. Reuse the selected recipe across every fold and seed. A validated published baseline can retain its starting recipe without spending all three trials; LACF receives no extra undisclosed search allowance.
+
+Log correctness repairs and loader checks separately; they cannot disguise additional scientific candidates. Numerical LACF adapter/loss choices explored during pilots count toward its budget. Prespecified A0–A10 ablations test hypotheses and are not a pool from which to retrospectively choose the principal method.
+
+Record all candidates, adaptation reasons, pilot fold/seed, selected epoch and source EER, failed attempts, development-evaluation counts, optimizer updates, GPU hours, peak memory, and training/evaluation time. Report actual effort when fewer trials are used. Comparable opportunity does not require equal batch sizes, epochs, or GPU hours. Disclose pretrained encoders and total/trainable parameter counts separately.
+
+### 3. Match sampling and augmentation for mechanism claims
+
+The main table preserves the declared method recipes. Standard baselines use domain-balanced sampling with natural within-domain class ratios; LACF and A0–A10 use domain-and-class-balanced sampling. Disclose sampler, augmentation, class/loss weights, input durations, and encoder freeze/fine-tune policies. Main-table gains concern the whole system and recipe; they do not alone isolate relation features.
+
+For LACF mechanism ablations, hold source membership, sampler, crop policy, seeds, effective batch, augmentation, applicable encoder checkpoints/freeze policy, checkpoint criterion, and evaluator fixed. Use LACF's WavLM Base+ for its speech-view controls; the native WavLM Base baseline does not substitute for that architecture control. Match adapter/head capacity where feasible and disclose necessary differences. Frozen LACF starts with no augmentation; if a logged source-only candidate changes this before the global freeze, its selected augmentation applies to all applicable mechanism controls.
+
+| ID | Prespecified control | Tested change |
+| --- | --- | --- |
+| A0 | LACF WavLM encoder with binary head | Speech-view reference under the LACF recipe |
+| A1 | LACF CLAP audio encoder with binary head | Audio-language-view reference |
+| A2 | Concatenated WavLM/CLAP features with binary head | Ordinary fusion versus language-anchor relations |
+| A3 | Earlier three-branch proposal | Previous fusion design; disclose required architectural differences |
+| A4 | CLAP anchor probabilities only | Language anchors without WavLM |
+| A5 | WavLM anchor probabilities only | WavLM projection without cross-view relations |
+| A6 | Both anchor distributions | Common anchor space before relation features |
+| A7 | A6 plus absolute difference and elementwise agreement | Agreement/disagreement features |
+| A8 | A7 plus JS divergence and both entropies | Full relation representation without bona-fide JS loss |
+| A9 | A8 plus bona-fide JS loss | Proposed frozen LACF |
+| A10 | A9 plus top-four WavLM fine-tuning | Optional fine-tuning contribution |
+
+Keep the WavLM semantic loss at its common selected value for A5–A9 where defined; change only the tested component/loss. A10 intentionally changes encoder freezing. Controls without an applicable view/distribution omit undefined losses and document those omissions. Do not claim an architecture-only contrast if objective or capacity also necessarily differs.
+
+### 4. Prevent target feedback from crossing model boundaries
+
+Before inspecting any method's first held-out target result, freeze the comparison-wide protocol, principal result rows, LACF architecture/prompt bank, A0–A10 hypotheses, duration-control rules, tuning budgets, and source-validated final recipes for all principal methods. Source-only pilots and fold training may proceed while completing this barrier; target evaluation waits for its completion.
+
+Freeze these eight concepts and their ordering:
+
+1. `natural human speech`
+2. `authentic human voice recording`
+3. `naturally produced human voice`
+4. `synthetic speech`
+5. `text-to-speech generated voice`
+6. `voice-converted speech`
+7. `AI-cloned human voice`
+8. `neural-vocoder generated speech`
+
+The first three are bona-fide concepts and the remaining five are spoof concepts. Use exactly `{concept}`, `a recording of {concept}`, and `this audio contains {concept}` for every concept. Normalize each frozen CLAP text embedding, average the three for each concept, and L2-normalize its prototype. Target audio, scores, and errors cannot guide prompts or ordering. Initial temperature and loss coefficients remain in the recipe table; settle any permitted source-only numerical trials before target feedback.
+
+Each final freeze record contains a date, code revision, tagged recipe, pilot evidence/search log, known reproduction limitations, and confirmation that no target results guided decisions. At this update, WavLM has a completed source-only run; remaining methods still need implementation and source validation. The comparison-wide gate is therefore **not yet complete**.
+
+Once target feedback exists, the principal study stays fixed. A later design/recipe change prompted by it is exploratory, needs separately identified results, and requires independent confirmatory data for a new generalization claim. It cannot silently replace a frozen principal row. Unlabeled z-score transfer remains the sole prespecified target-statistic adaptation.
 
 ## Shared final evaluation
 
@@ -63,7 +142,7 @@ The model hands the evaluator an utterance ID, dataset, binary label, and raw sp
 2. **Ranking:** report held-out target EER and AUROC. EER is a descriptive target metric; its target-derived crossing point is never used as a deployable threshold.
 3. **Strict raw transfer:** pool raw source-development scores, derive source APCER operating thresholds at 1%, 5%, and 10%, freeze them, then report target APCER, BPCER, and ACER at each threshold. With high scores indicating spoof, `APCER(t) = P(score < t | spoof)`, `BPCER(t) = P(score >= t | bona fide)`, and `ACER = (APCER + BPCER)/2`. For each requested rate `a`, sort pooled source spoof scores ascending and select the element at zero-based index `floor(a * n)` as the threshold; this yields source APCER no greater than `a` under the stated `>=` decision rule, including ties.
 4. **Unlabeled z-score transfer:** normalize each source-development domain independently using its own score mean and population standard deviation (`ddof=0`), pool normalized source scores, and derive the same three APCER thresholds. Normalize target raw scores with the **unlabeled target score distribution's** own mean and population standard deviation, then apply the frozen normalized thresholds. Reject a domain if its standard deviation is at most `1e-12` or any score is non-finite. This branch uses target score statistics and must be labeled **transductive**, not strict zero-shot. Report target APCER/BPCER/ACER for this branch; EER/AUROC need only be reported once because a positive-scale z-score preserves ranking.
-5. **Uncertainty and aggregation:** for each fold and seed, report 95% class-stratified percentile bootstrap intervals for target EER, AUROC, and transferred APCER/BPCER/ACER, using 1,000 target resamples and bootstrap seed `2026`. Keep source-calibrated thresholds and the full target's unlabeled z-score statistics fixed inside the bootstrap. Across the three training seeds, report mean ± sample standard deviation for each fold, and an equal-weight mean across the four folds. Keep per-fold results visible; do not pool targets of very different sizes into one headline score.
+5. **Uncertainty and aggregation:** for each fold and seed, report 95% class-stratified percentile bootstrap intervals for target EER, AUROC, and transferred APCER/BPCER/ACER, using 1,000 target resamples and bootstrap seed `2026`. Keep source-calibrated thresholds and the full target's unlabeled z-score statistics fixed inside the bootstrap. For three-seed models, report mean ± sample standard deviation for each fold. For single-seed WavLM, report the seed-1234 point estimate, no across-seed standard deviation (`null` in summaries), and the per-run conditional target-bootstrap intervals. Report an equal-weight mean across four folds, retain per-fold results and disclose the replication difference. Do not pool targets of very different sizes into one headline score or label F1/F2/F3 alone as a complete four-fold result.
 
 The `>=` tie convention, population standard deviation, degenerate-score check, threshold order statistic, and bootstrap design must be implemented once in the shared evaluator and tested with synthetic scores before final model comparisons.
 

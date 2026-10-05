@@ -9,6 +9,7 @@ therefore transductive, not strict zero-shot.
 from __future__ import annotations
 
 import csv
+import hashlib
 import os
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -44,6 +45,7 @@ def _both_classes(labels: np.ndarray) -> None:
 
 
 def compute_eer(labels: Sequence[int], scores: Sequence[float]) -> float:
+    """Linearly interpolate the ROC error crossing; return no deployable threshold."""
     labels_array, scores_array = _pair(labels, scores)
     _both_classes(labels_array)
     fpr, tpr, _ = roc_curve(labels_array, scores_array, pos_label=1, drop_intermediate=False)
@@ -185,6 +187,14 @@ def _bootstrap_intervals(
     }
     return {
         "method": "class-stratified percentile bootstrap",
+        "description": "Target-set percentile bootstrap conditional on fixed source calibration and fixed target normalization statistics",
+        "resampling_unit": "target_observation",
+        "class_stratified": True,
+        "target_class_counts_fixed": True,
+        "source_thresholds_fixed_within_resamples": True,
+        "source_normalization_stats_fixed_within_resamples": True,
+        "includes_training_or_calibration_uncertainty": False,
+        "percentiles": [2.5, 97.5],
         "confidence_level": 0.95,
         "resamples": resamples,
         "seed": seed,
@@ -193,20 +203,10 @@ def _bootstrap_intervals(
     }
 
 
-def evaluate_transfer(
-    source_dev: Mapping[str, tuple[Sequence[int], Sequence[float]]],
-    target_labels: Sequence[int],
-    target_scores: Sequence[float],
-    *,
-    bootstrap_resamples: int = 1000,
-    bootstrap_seed: int = 2026,
-) -> dict[str, object]:
-    """Evaluate one frozen model/fold/seed; source-only calibration precedes target metrics."""
+def calibrate_source_scores(source_dev: Mapping[str, tuple[Sequence[int], Sequence[float]]]) -> dict:
+    """Freeze both operating branches using source development domains only."""
     if not source_dev:
         raise ValueError("At least one source-development domain is required")
-    if bootstrap_resamples < 0:
-        raise ValueError("bootstrap_resamples must be non-negative")
-
     source_eers = {}
     source_stats = {}
     raw_labels, raw_scores, normalized_scores = [], [], []
@@ -223,6 +223,28 @@ def evaluate_transfer(
     pooled_labels = np.concatenate(raw_labels)
     raw_thresholds = calibrate_apcer_thresholds(pooled_labels, np.concatenate(raw_scores))
     normalized_thresholds = calibrate_apcer_thresholds(pooled_labels, np.concatenate(normalized_scores))
+    return {
+        "source_dev": {"eer_by_domain": source_eers, "macro_eer": float(np.mean(list(source_eers.values())))},
+        "source_stats": source_stats,
+        "raw_thresholds": raw_thresholds,
+        "normalized_thresholds": normalized_thresholds,
+    }
+
+
+def evaluate_transfer(
+    source_dev: Mapping[str, tuple[Sequence[int], Sequence[float]]],
+    target_labels: Sequence[int],
+    target_scores: Sequence[float],
+    *,
+    bootstrap_resamples: int = 1000,
+    bootstrap_seed: int = 2026,
+) -> dict[str, object]:
+    """Evaluate one frozen model/fold/seed; source-only calibration precedes target metrics."""
+    if bootstrap_resamples < 0:
+        raise ValueError("bootstrap_resamples must be non-negative")
+    calibration = calibrate_source_scores(source_dev)
+    raw_thresholds = calibration["raw_thresholds"]
+    normalized_thresholds = calibration["normalized_thresholds"]
 
     target_labels_array, target_raw = _pair(target_labels, target_scores)
     _both_classes(target_labels_array)
@@ -230,11 +252,17 @@ def evaluate_transfer(
     target_normalized = normalize_scores(target_raw, target_stats)
 
     report: dict[str, object] = {
+        "evaluation_schema_version": 2,
+        "metrics_implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "label_convention": "0=bona_fide,1=spoof; higher_score=spoof",
-        "source_dev": {
-            "eer_by_domain": source_eers,
-            "macro_eer": float(np.mean(list(source_eers.values()))),
+        "score_orientation": "higher_is_spoof",
+        "threshold_calibration": {
+            "data": "pooled_source_development_spoof_scores",
+            "decision_rule": "score >= threshold predicts spoof",
+            "order_statistic": "sorted_spoof_scores[floor(rate * n_spoof)]",
+            "source_apcer_guarantee": "at_most_nominal_rate_including_ties",
         },
+        "source_dev": calibration["source_dev"],
         "target": {
             "n_bona_fide": int(np.sum(target_labels_array == 0)),
             "n_spoof": int(np.sum(target_labels_array == 1)),
@@ -251,9 +279,10 @@ def evaluate_transfer(
             "target_operating_points": _operating_metrics(target_labels_array, target_normalized, normalized_thresholds),
         },
         "normalization": {
+            "method": "per_domain_zscore",
             "ddof": 0,
             "minimum_standard_deviation": MIN_SCORE_STD,
-            "source_dev": source_stats,
+            "source_dev": calibration["source_stats"],
             "target_unlabeled": target_stats,
         },
     }
@@ -287,8 +316,12 @@ def write_score_csv(path: str | Path, rows: Iterable[tuple[str, str, int, float]
     os.replace(temporary, destination)
 
 
-def read_score_csv(path: str | Path, expected_dataset: str) -> tuple[np.ndarray, np.ndarray]:
+def read_score_csv(
+    path: str | Path, expected_dataset: str, *, expected_labels: Mapping[str, int] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Validate exact canonical IDs/labels when supplied; canonicalize order for reproducible CIs."""
     labels, scores, seen_ids = [], [], set()
+    by_id = {}
     with Path(path).open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         if not {"utterance_id", "dataset", "label", "raw_score"}.issubset(reader.fieldnames or []):
@@ -300,6 +333,20 @@ def read_score_csv(path: str | Path, expected_dataset: str) -> tuple[np.ndarray,
             if not utterance_id or utterance_id in seen_ids:
                 raise ValueError(f"Blank or duplicate utterance ID in {path}: {utterance_id}")
             seen_ids.add(utterance_id)
-            labels.append(int(row["label"]))
-            scores.append(float(row["raw_score"]))
+            label, score = int(row["label"]), float(row["raw_score"])
+            if expected_labels is not None:
+                if utterance_id not in expected_labels:
+                    raise ValueError(f"Unexpected utterance ID in {path}: {utterance_id}")
+                if label != expected_labels[utterance_id]:
+                    raise ValueError(f"Wrong label in {path}: {utterance_id}")
+            labels.append(label)
+            scores.append(score)
+            by_id[utterance_id] = (label, score)
+    if expected_labels is not None:
+        missing = expected_labels.keys() - seen_ids
+        if missing:
+            raise ValueError(f"Missing {len(missing)} expected utterance IDs in {path}: {sorted(missing)[:3]}")
+        ordered = [by_id[identifier] for identifier in sorted(expected_labels)]
+        labels = [row[0] for row in ordered]
+        scores = [row[1] for row in ordered]
     return _pair(labels, scores)

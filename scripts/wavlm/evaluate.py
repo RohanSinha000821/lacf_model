@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,24 +10,32 @@ from pathlib import Path
 import torch
 
 from audio_deepfake_detection.metrics import (
-    calibrate_apcer_thresholds,
-    compute_eer,
+    calibrate_source_scores,
     evaluate_transfer,
-    normalize_scores,
     read_score_csv,
     write_score_csv,
-    zscore_stats,
 )
-from audio_deepfake_detection.protocol import FOLDS, read_dataset, utterance_id
+from audio_deepfake_detection.protocol import (
+    FOLDS, canonical_score_labels, checkpoint_digest, load_score_manifest,
+    read_dataset, save_score_manifest, utterance_id, verify_completed_run,
+    verify_score_digest, verify_source_macro,
+    validate_run_name,
+)
 from audio_deepfake_detection.sota.wavlm_wa import WavLMDataset, WavLMWA, make_wavlm_eval_loader
 
 
-def checkpoint_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def verify_checkpoint(checkpoint, completion, fold_name, seed, run_name="wavlm"):
+    config = checkpoint["config"]
+    if config.get("run_name", "wavlm") != run_name:
+        raise ValueError("Checkpoint output family does not match requested run name")
+    fold = FOLDS[fold_name]
+    if checkpoint["fold"] != fold_name or config["seed"] != seed or config["fold"] != fold_name:
+        raise ValueError("Checkpoint does not match requested fold/seed")
+    if checkpoint["epoch"] != completion["best_epoch"]:
+        raise ValueError("Checkpoint is not the recorded best epoch")
+    if tuple(config["sources"]) != fold["sources"] or config["target"] != fold["target"]:
+        raise ValueError("Checkpoint LODO membership does not match the frozen protocol")
+    verify_source_macro(checkpoint["macro_dev_eer"], completion["best_macro_source_dev_eer"])
 
 
 def score_rows(model, loader, records, dataset_name, data_root, device):
@@ -55,16 +62,20 @@ def score_rows(model, loader, records, dataset_name, data_root, device):
         raise RuntimeError(f"Scored {offset} of {len(records)} records")
 
 
-def score_split(model, dataset_name, split, data_root, output, device, *, num_workers, prefetch_factor):
+def score_split(model, dataset_name, split, data_root, output, device, *, num_workers, prefetch_factor, manifest):
     records = read_dataset(dataset_name, split, data_root)
     if not records:
         raise ValueError(f"No records for {dataset_name}/{split}")
+    expected = canonical_score_labels(dataset_name, split, data_root, records=records)
+    if manifest["splits"].get(output.name) != {"dataset": dataset_name, "split": split}:
+        raise ValueError(f"Score manifest split does not match {dataset_name}/{split}")
     if output.exists():
-        labels, _ = read_score_csv(output, dataset_name)
-        if len(labels) != len(records):
-            raise ValueError(f"Existing score count does not match {dataset_name}/{split}: {output}")
+        verify_score_digest(output, manifest)
+        labels, scores = read_score_csv(output, dataset_name, expected_labels=expected)
         print(f"Verified existing {output}: {len(labels):,} scores", flush=True)
-        return
+        return labels, scores
+    if output.name in manifest["score_sha256"]:
+        raise ValueError(f"Previously registered score file is missing: {output}")
     loader = make_wavlm_eval_loader(
         WavLMDataset(records, training=False),
         batch_size=1,
@@ -73,56 +84,41 @@ def score_split(model, dataset_name, split, data_root, output, device, *, num_wo
         pin_memory=True,
     )
     write_score_csv(output, score_rows(model, loader, records, dataset_name, data_root, device))
+    result = read_score_csv(output, dataset_name, expected_labels=expected)
+    manifest["score_sha256"][output.name] = checkpoint_digest(output)
+    save_score_manifest(output.parent, manifest)
     print(f"Wrote {output}: {len(records):,} scores", flush=True)
+    return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Score a completed WavLM LODO fold and report shared metrics")
     parser.add_argument("--fold", choices=tuple(FOLDS), required=True)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--run-name", type=validate_run_name, default="wavlm", help="Output family, e.g. wavlm_bs96")
     parser.add_argument("--source-data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--target-data-root", type=Path, default=Path("/mnt/salt/datasets/audio-deepfake"))
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--bootstrap-resamples", type=int, default=1000)
     args = parser.parse_args()
-    if args.num_workers < 0 or args.prefetch_factor < 1 or args.bootstrap_resamples < 0:
-        parser.error("Workers/resamples must be non-negative and prefetch factor positive")
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required for WavLM scoring")
+    if args.num_workers < 0 or args.prefetch_factor < 1 or args.bootstrap_resamples < 0 or args.seed < 0:
+        parser.error("Workers/resamples/seed must be non-negative and prefetch factor positive")
 
     project_root = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[2]))
-    run_dir = project_root / "outputs" / "wavlm" / args.fold / str(args.seed)
+    run_dir = project_root / "outputs" / args.run_name / args.fold / str(args.seed)
     best_path = run_dir / "best.pt"
-    completion_path = run_dir / "training_complete.json"
-    if not best_path.is_file() or not completion_path.is_file():
-        raise FileNotFoundError(f"Training has not completed for {run_dir}")
-    completion = json.loads(completion_path.read_text(encoding="utf-8"))
-    if completion["fold"] != args.fold or completion["seed"] != args.seed:
-        raise ValueError("Training completion record does not match requested fold/seed")
-
-    digest = checkpoint_digest(best_path)
-    manifest_path = run_dir / "score_manifest.json"
-    score_files = list(run_dir.glob("source_dev_*.csv")) + list(run_dir.glob("target_scores.csv"))
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if (manifest["fold"], manifest["seed"], manifest["checkpoint_sha256"]) != (args.fold, args.seed, digest):
-            raise ValueError("Checkpoint changed since these scores were generated")
-    else:
-        if score_files:
-            raise ValueError("Scores exist without a checkpoint manifest; refusing to mix runs")
-        manifest = {"fold": args.fold, "seed": args.seed, "checkpoint_sha256": digest}
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if (run_dir / "metrics.json").exists():
+        raise FileExistsError(f"Metrics already exist; refusing to overwrite: {run_dir}")
+    completion, digest = verify_completed_run(run_dir, args.fold, args.seed)
 
     checkpoint = torch.load(best_path, map_location="cpu", weights_only=True)
     config = checkpoint["config"]
-    if checkpoint["fold"] != args.fold or config["seed"] != args.seed:
-        raise ValueError("Checkpoint does not match requested fold/seed")
-    if checkpoint["epoch"] != completion["best_epoch"]:
-        raise ValueError("Checkpoint is not the recorded best epoch")
+    verify_checkpoint(checkpoint, completion, args.fold, args.seed, args.run_name)
     fold = FOLDS[args.fold]
-    if tuple(config["sources"]) != fold["sources"] or config["target"] != fold["target"]:
-        raise ValueError("Checkpoint LODO membership does not match the frozen protocol")
+    manifest = load_score_manifest(run_dir, args.fold, args.seed, digest, create=True)
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for WavLM scoring")
     model = WavLMWA(model_name=config["model_name"])
     model.load_state_dict(checkpoint["model_state_dict"])
     del checkpoint
@@ -134,34 +130,20 @@ def main() -> None:
     source_dev = {}
     for domain in fold["sources"]:
         output = run_dir / f"source_dev_{domain}.csv"
-        score_split(
+        source_dev[domain] = score_split(
             model, domain, "dev", args.source_data_root, output, device,
-            num_workers=args.num_workers, prefetch_factor=args.prefetch_factor,
+            num_workers=args.num_workers, prefetch_factor=args.prefetch_factor, manifest=manifest,
         )
-        source_dev[domain] = read_score_csv(output, domain)
-
-    macro_source_eer = sum(compute_eer(labels, scores) for labels, scores in source_dev.values()) / len(source_dev)
-    if abs(macro_source_eer - completion["best_macro_source_dev_eer"]) > 1e-5:
-        raise ValueError("Recomputed source-dev EER differs from the selected checkpoint; target remains unopened")
-
-    raw_labels = []
-    raw_scores = []
-    normalized_scores = []
-    for labels, scores in source_dev.values():
-        raw_labels.extend(labels)
-        raw_scores.extend(scores)
-        normalized_scores.extend(normalize_scores(scores, zscore_stats(scores)))
-    calibrate_apcer_thresholds(raw_labels, raw_scores)
-    calibrate_apcer_thresholds(raw_labels, normalized_scores)
+    calibration = calibrate_source_scores(source_dev)
+    verify_source_macro(calibration["source_dev"]["macro_eer"], completion["best_macro_source_dev_eer"])
     print("Source-only calibration complete; opening held-out target now", flush=True)
 
     target_output = run_dir / "target_scores.csv"
-    score_split(
+    target_labels, target_scores = score_split(
         model, fold["target"], fold["target_split"], args.target_data_root,
         target_output, device, num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor,
+        prefetch_factor=args.prefetch_factor, manifest=manifest,
     )
-    target_labels, target_scores = read_score_csv(target_output, fold["target"])
     report = evaluate_transfer(
         source_dev, target_labels, target_scores,
         bootstrap_resamples=args.bootstrap_resamples,
@@ -174,6 +156,11 @@ def main() -> None:
         "target_split": fold["target_split"],
         "checkpoint_sha256": digest,
         "checkpoint_epoch": completion["best_epoch"],
+        "model": args.run_name,
+        "source_data_root": str(args.source_data_root),
+        "target_data_root": str(args.target_data_root),
+        "score_sha256": dict(manifest["score_sha256"]),
+        "evaluator_sha256": checkpoint_digest(Path(__file__)),
     })
     temporary = run_dir / "metrics.json.tmp"
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

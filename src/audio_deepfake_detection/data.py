@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import posixpath
 from pathlib import Path
 
 import soundfile as sf
@@ -280,23 +281,24 @@ def _read_speechfake_metadata(root: Path,split: str,) -> list[dict[str, str]]:
         )
 
 
-def _index_speechfake_rows(rows: list[dict[str, str]],*,split: str,) -> dict[str, tuple[str, ...]]:
+def _index_speechfake_rows(rows: list[dict[str, str]],*,split: str,) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Compare every metadata column; file paths and labels have canonical spellings.
 
-    indexed: dict[str,tuple[str, ...],] = {}
+    No unrecognized column is silently excluded from duplicate consistency checks.
+    """
+
+    indexed: dict[str, tuple[tuple[str, str], ...]] = {}
 
     for row in rows:
 
-        relative_path = Path(
-            row["file"].strip()
-        ).as_posix()
-
-        signature = (
-            row.get("label", "").strip().lower(),
-            row.get("generator", "").strip(),
-            row.get("model", "").strip(),
-            row.get("speaker", "").strip(),
-            row.get("language", "").strip(),
-        )
+        if any(key is None or value is None for key, value in row.items()):
+            raise ValueError(f"Malformed SpeechFake metadata in {split}")
+        relative_path = posixpath.normpath(row["file"].strip())
+        if relative_path in ("", ".", "..") or relative_path.startswith(("/", "../")):
+            raise ValueError(f"Invalid SpeechFake relative path: {relative_path}")
+        metadata = {key: value.strip() for key, value in row.items() if key != "file"}
+        metadata["label"] = metadata.get("label", "").lower()
+        signature = tuple(sorted(metadata.items()))
 
         if (relative_path in indexed and indexed[relative_path] != signature):
             raise ValueError(
@@ -344,7 +346,7 @@ def read_speechfake(root: str | Path,split: str,) -> list[Record]:
         if relative_path in excluded_paths:
             continue
 
-        label_text = signature[0]
+        label_text = dict(signature)["label"]
 
         if label_text == "bonafide":
             label = 0

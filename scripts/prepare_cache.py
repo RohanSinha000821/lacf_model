@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source-root",
         type=Path,
-        default=Path(os.environ["DATA_ROOT"]),
+        default=Path(os.environ.get("DATA_ROOT", "/mnt/salt/datasets/audio-deepfake")),
         help="Original dataset root",
     )
 
@@ -69,7 +69,10 @@ def parse_args() -> argparse.Namespace:
         default=8,
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.workers < 1:
+        parser.error("--workers must be >= 1")
+    return args
 
 
 

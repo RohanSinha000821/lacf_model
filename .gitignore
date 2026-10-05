@@ -5,6 +5,7 @@
 *.pt
 *.pth
 *.ckpt
+*.safetensors
 *.wav
 *.flac
 *.mp3
@@ -16,4 +17,37 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
 *.log
+
+# Credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+.vscode/
+.idea/
+
+# Editor/OS temporary files
+*.swp
+*.swo
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+
+# Local research reference originals; index/checksums remain versionable
+/references/**/*.pdf
+/references/**/*.docx

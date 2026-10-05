@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from audio_deepfake_detection.metrics import compute_eer
-from audio_deepfake_detection.protocol import DISPLAY_NAMES, FOLDS, read_dataset
+from audio_deepfake_detection.protocol import DISPLAY_NAMES, FOLDS, read_dataset, validate_run_name
 
 from audio_deepfake_detection.sota.wavlm_wa import (
     WavLMDataset,
@@ -25,7 +25,7 @@ from audio_deepfake_detection.sota.wavlm_wa import (
 SEED = 1234
 MODEL_NAME = "microsoft/wavlm-base"
 
-BATCH_SIZE = 64
+BATCH_SIZE = 96
 EVAL_BATCH_SIZE = 1
 GRADIENT_ACCUMULATION_STEPS = 1
 NUM_WORKERS = 16
@@ -73,6 +73,8 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--seed", type=int, default=SEED, help="Training seed and output-run name")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Examples per optimizer step")
+    parser.add_argument("--run-name", type=validate_run_name, help="Output family; defaults to wavlm_bs<batch-size>")
 
     parser.add_argument(
         "--num-workers",
@@ -108,6 +110,11 @@ def parse_args() -> argparse.Namespace:
 
     if args.seed < 0:
         parser.error("--seed must be non-negative")
+
+    if args.batch_size < 1:
+        parser.error("--batch-size must be positive")
+    if args.run_name is None:
+        args.run_name = f"wavlm_bs{args.batch_size}"
 
     return args
 
@@ -230,7 +237,7 @@ def main() -> None:
     output_dir = (
         project_root
         / "outputs"
-        / "wavlm"
+        / args.run_name
         / fold_name
         / str(args.seed)
     )
@@ -367,7 +374,7 @@ def main() -> None:
     train_loader = (
         make_wavlm_train_loader(
             train_datasets,
-            batch_size=BATCH_SIZE,
+            batch_size=args.batch_size,
             seed=args.seed,
             num_workers=args.num_workers,
             prefetch_factor=args.prefetch_factor,
@@ -484,7 +491,7 @@ def main() -> None:
 
     print(
         "batch size:",
-        BATCH_SIZE,
+        args.batch_size,
     )
 
     print(
@@ -689,6 +696,7 @@ def main() -> None:
                 bad_epochs,
 
             "config": {
+                "run_name": args.run_name,
                 "model_name":
                     MODEL_NAME,
 
@@ -711,7 +719,7 @@ def main() -> None:
                     args.seed,
 
                 "batch_size":
-                    BATCH_SIZE,
+                    args.batch_size,
 
                 "eval_batch_size":
                     EVAL_BATCH_SIZE,
