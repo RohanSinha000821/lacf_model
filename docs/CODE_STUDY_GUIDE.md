@@ -237,7 +237,7 @@ Important detail: the evaluation CLI defaults to the legacy family `wavlm`. Batc
 
 The evaluator refuses to replace existing metrics. A valid completion marker and checkpoint/score provenance are required; merely having a `best.pt` file from an interrupted run is insufficient.
 
-The [experiment protocol](/mnt/drive/rohan/audio-deepfake-detection/EXPERIMENT_PROTOCOL.md:112) also requires a comparison-wide design/recipe freeze before inspecting any held-out results. The evaluation scripts enforce per-run integrity and source-before-target checks, but do **not** programmatically enforce that global research-policy gate. Do not launch target evaluation simply because one fold finishes.
+The [experiment protocol](/mnt/drive/rohan/audio-deepfake-detection/docs/EXPERIMENT_PROTOCOL.md) records the comparison-wide design/recipe freeze and the owner's 2026-10-06 exception permitting independent completed WavLM fold evaluation. The scripts verify per-run integrity and source-before-target checks; an operator acknowledgment is not an automated scientific audit. The exception does not permit target-guided tuning or claim that the wider comparison is frozen.
 
 ### Generic evaluator
 
@@ -306,13 +306,13 @@ A saved best checkpoint alone does not mean training is complete. A completion m
 - [test_evaluation_pipeline.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_evaluation_pipeline.py): completed-run gates, canonical membership, manifests/checksums, source-before-target behavior and summary checks.
 - [test_data_cache.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_data_cache.py): SpeechFake duplicates/overlaps/path handling and cache argument checks.
 - [test_training_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_training_queue.py): batch/family settings, queue order, failure handling and concurrency locking using temporary/fake runs.
-- [README.md](/mnt/drive/rohan/audio-deepfake-detection/README.md) is the operational starting point; [EXPERIMENT_PROTOCOL.md](/mnt/drive/rohan/audio-deepfake-detection/EXPERIMENT_PROTOCOL.md) records research rules; [SOTA_PAPER_NOTES.md](/mnt/drive/rohan/audio-deepfake-detection/SOTA_PAPER_NOTES.md) records paper interpretations. Documentation describes intended policy; executable code determines what is actually implemented.
+- [README.md](/mnt/drive/rohan/audio-deepfake-detection/README.md) is the operational starting point; [EXPERIMENT_PROTOCOL.md](/mnt/drive/rohan/audio-deepfake-detection/docs/EXPERIMENT_PROTOCOL.md) records research rules; [SOTA_PAPER_NOTES.md](/mnt/drive/rohan/audio-deepfake-detection/docs/SOTA_PAPER_NOTES.md) records paper interpretations. Documentation describes intended policy; executable code determines what is actually implemented.
 
 For a first study session, trace just one batch: `train.main()` → `read_dataset()` → `WavLMDataset.__getitem__()` → `collate_wavlm_batch()` → `WavLMWA.forward()` → cross-entropy → `backward()` → optimizer step. Then trace one epoch's source-dev evaluation and best-checkpoint decision. Leave target evaluation and bootstrap internals until that path is clear.
 
 ## 13. AASIST: the second baseline
 
-The shared `data.py`, `protocol.py`, `metrics.py` and summary contract remain unchanged. New code is deliberately limited to one adapter, the licensed upstream architecture, two entry points and a queue:
+The shared `data.py`, `protocol.py`, `metrics.py` and summary contract remain unchanged by the AASIST addition. Its code is deliberately limited to one adapter, the licensed upstream architecture, two entry points and a queue:
 
 ```text
 scripts/aasist/train_folds.sh
@@ -350,3 +350,60 @@ scripts/aasist/evaluate.py
 AASIST is randomly initialized, not an SSL encoder. Its train/eval duration policy differs from WavLM's full-utterance evaluation. Its class weights are `[0.9,0.1]`; the encoder/head use one Adam group at `1e-4`, weight decay `1e-4`, with cosine minimum `5e-6`. No BF16, RawBoost, frequency masking or SWA is silently added. See README and the protocol for disclosed deviations from the released training workflow.
 
 The AASIST queue covers all four folds for one seed and refuses to start while the existing batch-96 WavLM queue is active. It is not an automatic handoff. [test_aasist.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_aasist.py) checks audio handling, exact upstream logits after class reordering, CPU forward/backward/reload, checkpoint writing, target gates and metric export. [test_aasist_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_aasist_queue.py) checks queue order and locking without real training.
+
+## 14. P2–P4 evaluation flow (2026-10-05)
+
+Update 2026-10-06: the owner authorizes native P1 evaluation of completed
+WavLM folds independently, while retaining source-only checkpoint/threshold
+selection and no target feedback into any model's development. In
+`scripts/wavlm/evaluate.py`, `--confirm-run-frozen` records that policy without
+claiming the wider comparison is already frozen. `scripts/wavlm/evaluate_folds.sh`
+queues F1→F2→F3 sequentially and stops on failure. Each fold saves separate
+metrics/scores/logs; `summarize_results.py --non-final --folds f1 f2 f3` makes
+an explicitly partial summary. Later, `evaluate_folds.sh f4` evaluates only F4
+and builds the four-fold summary from all existing reports. Synthetic tests
+cover queue ordering, failure/lock behavior, truthful freeze flags and adding
+F4 without changing earlier results. The P2–P4 supplementary gates below are
+separate and unchanged by this P1 launch.
+
+Start with [evaluate_extended.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/evaluate_extended.py).
+Input is a completed run directory, evaluation protocol/dataset, raw/source roots,
+freeze acknowledgment and, for P2, the source-only single-checkpoint selection
+record. Output is a separate `analyses/<protocol>/<dataset>/metrics.json`, with
+registered additional score CSVs only if inference is explicitly requested.
+
+Flow: completed checkpoint/hash → registered canonical source dev scores →
+source-only calibration and macro-EER verification → official target metadata →
+verified P1 scores or explicitly requested native inference → common reports.
+Default reporting never constructs a GPU model. Record-writing mode exits
+before opening external targets. WavLM/AASIST source scorers and checkpoint
+verifiers are reused; their training files and native preprocessing are unchanged.
+
+| File/function | Input | Output |
+| --- | --- | --- |
+| [evaluation_data.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake_detection/evaluation_data.py), `native_examples()` | Dataset, official split, raw root | Exact P1 membership enriched with generator, attack or codec metadata |
+| `asv2021_df()` / `partialspoof()` / `mlaad_mailabs()` | Raw root plus official DF keys or genuine M-AILABS root where required | External eval examples with stable ID, waveform path, binary label and annotations |
+| `cfad_conditions()` | Raw root, unseen or seen test partition | Clean/noisy/codec examples, noise/SNR/codec groups and class/source-qualified original IDs |
+| [analysis.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake_detection/analysis.py), `evaluate_frozen()` | Source calibration, target labels/scores, optional fixed parent statistics | EER/AUROC, fixed raw/transductive operating metrics and conditional bootstrap intervals |
+| `group_reports()` | Examples/scores, calibration, group dimensions | Generator/attack rows sharing parent genuine reference, or codec/noise rows with native group membership; all retain parent statistics |
+| `paired_raw_deltas()` | Declared original IDs, condition scores, source thresholds | Descriptive matched-original APCER/BPCER differences; variant-balanced per original |
+| `source_scores()` / `verify_selection()` | Completed run/registered source files or P2 selection identity | Verified calibration or a clear refusal before target access |
+| `export_rows()` | Explicit native model adapter, examples, unchanged batch-one loader | Shared `utterance_id,dataset,label,raw_score` rows, preserving order and spoof orientation |
+
+All rates are fractions. Single-class groups have `null` ranking/ACER, not
+fabricated metrics. Paired differences are signed fractions. Do not interpret
+these many subgroup intervals as corrected significance tests or training-seed
+uncertainty. See README for commands and protocol for scientific assumptions.
+
+Run synthetic tests with the GPU hidden from **that test process** while other
+jobs train (pinned-memory loaders can otherwise initialize CUDA even in a CPU test):
+
+```bash
+CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q -p no:cacheprovider
+```
+
+Tests in [test_extended_evaluation.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_extended_evaluation.py)
+cover schemas, safe paths, membership, source-first gates, fixed normalization,
+single-class metrics, genuine-reference deduplication, paired IDs, mock CPU
+export, immutable selection records, supplementary provenance and score-tamper
+rejection. This does not establish real-data/GPU inference validation.

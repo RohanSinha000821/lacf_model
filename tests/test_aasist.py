@@ -174,6 +174,8 @@ def test_trainer_writes_best_last_and_completion_with_source_only_early_stopping
     original_device = torch.device
     monkeypatch.setattr(train.torch, "device", lambda *args, **kwargs: original_device("cpu"))
     monkeypatch.setattr(train.torch.cuda, "is_available", lambda: True)
+    # Mocking the CUDA guard must not make Adam access a real GPU stream.
+    monkeypatch.setattr(train.torch.cuda, "is_current_stream_capturing", lambda: False)
     monkeypatch.setattr(train.torch.cuda, "get_device_name", lambda device: "synthetic CPU test")
     monkeypatch.setattr(train.torch.cuda, "reset_peak_memory_stats", lambda device: None)
     monkeypatch.setattr(train.torch.cuda, "max_memory_allocated", lambda device: 0)

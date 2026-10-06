@@ -1,5 +1,11 @@
 # Evaluation review and fixes — 2 October 2026
 
+Historical audit: the findings below describe that review's state, not the
+latest live run. Later batch/seed decisions, independent-fold authorization
+and score recovery are recorded in `EXPERIMENT_PROTOCOL.md` and the local
+`PROJECT_HANDOFF.md`. Preserve this audit; do not read its original three-seed
+defaults or pre-evaluation status as overriding later owner decisions.
+
 ## 1. EXECUTIVE VERDICT
 
 **CONSISTENT after fixes, within static and synthetic verification.** The metric

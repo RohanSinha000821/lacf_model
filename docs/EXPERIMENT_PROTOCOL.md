@@ -1,4 +1,54 @@
-# Cross-domain experiment protocol (v3)
+# Cross-domain experiment protocol (v4)
+
+## Owner-approved independent-fold evaluation (2026-10-06)
+
+The owner explicitly authorizes evaluating completed WavLM batch-96 F1/F2/F3
+independently now, then adding F4 after it is trained. This supersedes the
+comparison-wide target-access barrier below for these completed-run evaluations;
+it does not claim that the other models' recipes or LACF are already frozen.
+Use `--confirm-run-frozen`, record the independent-run policy in reports, and
+leave `comparison_wide_freeze_confirmed_by_operator=false`. The legacy
+`--confirm-protocol-frozen` remains available only when that wider freeze has
+actually been completed.
+
+Retain completed-checkpoint/configuration verification, exact source-dev
+membership, source macro-EER reload checks and source-only threshold calibration
+before opening the target. Target results must not tune WavLM, LACF, other
+baselines, prompts, recipes or ablations. Later target-informed changes are
+exploratory, not replacements for principal comparison rows. Disclose this
+evaluation timing; do not retroactively claim a comparison-wide pre-target
+freeze. Future model evaluation decisions must retain these safeguards.
+
+Current launch is native P1 only, F1→F2→F3 at seed 1234: batch-one BF16,
+8 workers, prefetch 2, and 1,000 bootstrap resamples (seed 2026). The short
+source-only benchmark found under 0.4% loader waiting, so increasing workers is
+not supported by evidence. The initial 8 GiB allocator ceiling caused an OOM
+on a 124-second full recording despite free physical GPU memory. The owner's
+2026-10-06 follow-up removes that ceiling: evaluation now uses available GPU
+memory without a configured allocator limit. This is an execution-memory fix,
+not a target-performance-driven model or input change. Shared GPU use can still
+cause a genuine OOM; any scoring failure stops the queue without cropping,
+skipping audio or changing scores.
+
+Interrupted CSV exports are now append-only and have checkpoint-, ordered
+membership-, model-code- and input-policy-bound recovery journals. Completed
+source CSVs retain their existing manifest checksums. An exception flushes and
+registers the valid prefix; the next launch verifies it and scores only the
+remaining records. Changed hashes/identities or uncommitted tails after a forced
+kill fail closed and are preserved for inspection. The original F1 temporary
+export predates journals: its 163,299 ordered rows were checked against canonical
+SpeechFake membership and explicitly adopted from the known failed launch.
+This one-time adoption records the existing file hash/count, not a claim that
+the old exporter had already registered a historical partial-file checksum.
+
+Each fold retains separate immutable `metrics.json`, registered score CSVs,
+checkpoint identity and `evaluation.log`. After F1/F2/F3, write
+`partial_summary_f1_f2_f3.json`, with `publication_summary=false`, missing F4,
+no four-fold mean and no across-seed SD. Once F4 finishes, score F4 only using
+the same settings and aggregate existing F1–F4 reports into `summary.json`.
+Do not rerun, overwrite or pool earlier target datasets. Partial and complete
+summaries are distinct artifacts. P2 external prerequisites and P3/P4 analyses
+remain separate from this native P1 queue.
 
 Status updated 2026-10-02: fairness safeguards strengthened with project-owner approval before recorded target evaluation. The fresh batch-64 WavLM F1 seed-1234 run finished through early stopping at epoch 17; its best source-selected checkpoint is epoch 12. Earlier interrupted batch-96/128 runs remain pilots, not valid continuations of the batch-64 recipe. No target score CSV, target metrics report, or score manifest was found in project outputs at this update. The latest explicit project decision takes precedence over older planning documents.
 
@@ -27,7 +77,7 @@ Use only each source's official train split for optimization and official develo
 
 Labels are `0 = bona fide` and `1 = spoof`. Every model emits one raw score for which **larger means more spoof-like**. Two-logit models return `spoof_logit - bona_fide_logit`; one-logit models return their spoof logit. A sample is predicted spoof when `score >= threshold`.
 
-Target isolation applies across methods: target scores, metrics, errors, listening examples, or unlabeled distributions from one detector must not guide another detector's architecture, recipe, prompts, or ablations. The sole authorized use of unlabeled target score statistics is the frozen transductive evaluation branch. Complete the comparison-wide freeze gate below before final target scoring. Official source train/dev use in another prespecified fold remains permitted; it does not authorize adapting recipes to held-out evaluation results.
+Target isolation applies across methods: target scores, metrics, errors, listening examples, or unlabeled distributions from one detector must not guide another detector's architecture, recipe, prompts, or ablations. The sole authorized use of unlabeled target score statistics is the frozen transductive evaluation branch. The 2026-10-06 owner-approved completed-fold policy above supersedes the comparison-wide precondition for the authorized WavLM runs, retaining target isolation. Official source train/dev use in another prespecified fold remains permitted; it does not authorize adapting recipes to held-out evaluation results.
 
 ## Training and selection rules shared by all models
 
@@ -115,7 +165,7 @@ Keep the WavLM semantic loss at its common selected value for A5–A9 where defi
 
 ### 4. Prevent target feedback from crossing model boundaries
 
-Before inspecting any method's first held-out target result, freeze the comparison-wide protocol, principal result rows, LACF architecture/prompt bank, A0–A10 hypotheses, duration-control rules, tuning budgets, and source-validated final recipes for all principal methods. Source-only pilots and fold training may proceed while completing this barrier; target evaluation waits for its completion.
+Original 2026-10-02 precaution: before inspecting any method's first held-out target result, freeze the comparison-wide protocol, principal result rows, LACF architecture/prompt bank, A0–A10 hypotheses, duration-control rules, tuning budgets, and source-validated final recipes for all principal methods. The owner revised target-access timing for completed WavLM folds on 2026-10-06, as recorded above. All no-target-guided-tuning rules remain in force; the wider freeze is not represented as complete.
 
 Freeze these eight concepts and their ordering:
 
@@ -145,6 +195,91 @@ The model hands the evaluator an utterance ID, dataset, binary label, and raw sp
 5. **Uncertainty and aggregation:** for each fold and seed, report 95% class-stratified percentile bootstrap intervals for target EER, AUROC, and transferred APCER/BPCER/ACER, using 1,000 target resamples and bootstrap seed `2026`. Keep source-calibrated thresholds and the full target's unlabeled z-score statistics fixed inside the bootstrap. For three-seed models, report mean ± sample standard deviation for each fold. For single-seed WavLM, report the seed-1234 point estimate, no across-seed standard deviation (`null` in summaries), and the per-run conditional target-bootstrap intervals. Report an equal-weight mean across four folds, retain per-fold results and disclose the replication difference. Do not pool targets of very different sizes into one headline score or label F1/F2/F3 alone as a complete four-fold result.
 
 The `>=` tie convention, population standard deviation, degenerate-score check, threshold order statistic, and bootstrap design must be implemented once in the shared evaluator and tested with synthetic scores before final model comparisons.
+
+## P2–P4 supplementary evaluation (implementation added 2026-10-05)
+
+The main overall plan's P2–P4 apply to proposed methods and the baselines used to
+support the corresponding claims. `scripts/evaluate_extended.py` provides one
+shared report path; native score export currently supports the implemented
+WavLM and AASIST only. Other detectors must export the same spoof-oriented CSV
+contract with matching checkpoint/metadata provenance when implemented. These
+analyses do not require new training or additional WavLM seeds. Implementation
+and synthetic CPU checks are **not** completed real-data evaluation or permission
+to bypass the comparison-wide freeze.
+
+- **P2:** ASVspoof 2021 DF is the primary external test. Use official DF full
+  evaluation keys, selecting `eval` and `notrim`, never progress/hidden trials.
+  Before opening any P2 target, document the single deployment checkpoint's
+  source-only fold/configuration selection reason in an immutable selection
+  record bound to model, fold, seed, completion file and best-checkpoint hashes.
+  Reuse that same record/checkpoint for DF, MLAAD/M-AILABS and PartialSpoof;
+  do not choose the best fold on external results. The code does not invent a
+  deployment-fold choice or waive the remaining models' seed plan. P2 raw
+  threshold transfer is strict zero-shot; the separately labeled unlabeled
+  z-score branch is transductive. PartialSpoof is an utterance-level stress
+  test, not a segment-localization claim. MLAAD negatives are the unique genuine
+  M-AILABS files referenced by official `original_file` metadata, not unrelated
+  real audio. Disclose the available MLAAD release/languages, genuine-reference
+  deduplication and class counts; do not claim the installed release is v10
+  without confirming it. ASVspoof 2021 and PartialSpoof reuse earlier ASV source
+  material, so these stress tests are not claims of wholly independent corpus
+  provenance. No optional corpus is a hyperparameter-development set.
+- **P3:** reuse F1 SpeechFake test scores for official `TTS`, `VC`, `NV` and
+  per-model groups; reuse F3 ASV5 and F4 ASV2019 scores for per-attack groups.
+  Each spoof-generator/attack row includes the full parent bona-fide reference,
+  explicitly recorded with counts; do not pool these overlapping rows. Report
+  actual attack IDs within their dataset namespace. A held-out dataset's IDs
+  were not observed in that dataset during source training, but this does **not**
+  establish cross-dataset generator-family novelty. Family-level known/unseen
+  claims still require a verified cross-dataset mapping; the implementation
+  marks this unknown rather than inferring it from matching/different ID names.
+- **P4:** F2 CFAD clean/noisy/codec unseen tests are primary; seen tests are
+  separate secondary reports. Read the distributed test waveforms without
+  regenerating corruptions. Report condition, noise, SNR, noise×SNR and codec
+  groups. F3 ASV5 reports C00–C11 codec groups; map official `-` to uncoded C00.
+  Match only declared original IDs (ASV5 `CODEC_SEED`, CFAD checked filename
+  convention and class/source directory) for descriptive strict-raw clean/error
+  differences. Average multiple variants within each original before averaging
+  originals, record matched class counts, and do not attach unpaired bootstrap
+  intervals to paired deltas. A relation-stability LACF variant is later work,
+  not silently included in the main detector.
+
+All thresholds remain those of the completed native source-development run;
+source macro EER and CSV hashes are verified before evaluation metadata is
+opened. P3 and ASV5 P4 subsets retain the **full target partition's** unlabeled
+z-score statistics, never per-generator/per-attack/per-codec recalibration.
+CFAD's separately distributed clean/noise/codec test corpora each use their own
+complete unlabeled partition statistics; their subgroups retain those parent
+statistics. Fixed source thresholds and fixed parent target statistics are
+retained in class-stratified 95% percentile bootstrap intervals (1,000 resamples,
+seed 2026). Single-class subgroups report the defined class-conditional error
+and its interval; EER, AUROC and ACER are `null`, not invented. These intervals
+are conditional on the frozen model, do not estimate seed variability, and are
+descriptive across many overlapping subgroup comparisons, not multiplicity-
+corrected significance tests. Metric rates remain fractions; paired differences
+may be negative and are not clamped.
+
+Store supplementary artifacts under
+`outputs/<family>/<fold>/<seed>/analyses/<p2|p3|p4>/<dataset>/`, separate from P1.
+Bind score exports to canonical membership/labels, metadata, source calibration,
+best checkpoint and completion hashes; refuse mismatched/replaced/unregistered
+scores and existing report overwrites. P3/ASV5 P4 reuse verified P1 CSV bytes.
+The default supplementary command does CPU reporting only; `--export-scores`
+explicitly enables GPU inference at batch 1 using the model's unchanged native
+preprocessing. All commands require operator `--confirm-protocol-frozen`;
+this is an acknowledgment, **not an automated proof** of scientific freeze.
+WavLM P1 also accepts the narrower owner-approved `--confirm-run-frozen`
+acknowledgment described at the start of this document; it does not assert a
+completed comparison-wide freeze.
+
+Local availability inspection: `/mnt/salt/datasets/audio-deepfake` exists (the
+spelling `datsets` does not). CFAD robustness, SpeechFake generator annotations,
+ASV5 codec keys and PartialSpoof utterance eval keys are present. The inspected
+ASV2021 archives contain trial-ID lists and VCTK/VCC source mapping metadata,
+not full CM evaluation labels; supply `DF-keys-full` via `--df-keys`. M-AILABS
+genuine audio was not found among the top-level corpora; supply its actual
+location with `--mailabs-root`. Missing inputs fail clearly. No raw dataset,
+active training run or existing result was changed by this implementation.
 
 ## Evidence, outputs, and release gate
 

@@ -1,5 +1,21 @@
 # SOTA paper reading notes for the LACF comparison
 
+Evaluation execution fix, 2026-10-06: the initial shared-GPU 8 GiB cap, not
+physical GPU exhaustion, stopped native WavLM scoring on a 124-second recording.
+The owner requested no allocator ceiling. Full-utterance batch-one BF16 scoring,
+checkpoint selection, source thresholds and normalization are unchanged.
+Checkpoint-bound CSV recovery preserves verified prefixes; the known original
+F1 pre-journal prefix requires explicit adoption, recorded with its hash/count.
+This is an I/O/memory execution change, not a new paper-derived model recipe.
+
+Owner decision, 2026-10-06: completed WavLM batch-96 folds may be evaluated
+independently now, with source-only checkpoint/threshold selection and no
+target-guided tuning of any model. This revises the earlier comparison-wide
+target-access timing, not the paper recipes or score contract. F1/F2/F3 are a
+partial result; F4 will be added using its own later completed checkpoint,
+without rerunning earlier folds. Record the independent-run authorization;
+do not claim that the wider LACF/baseline comparison was already frozen.
+
 Read on 2026-10-01. These are research notes, not instructions from the papers to change this project. The experimental decisions live in `EXPERIMENT_PROTOCOL.md`. Source papers are the five PDFs supplied by the project owner; author configurations are linked below. Preserve this file with the project so the paper-specific facts and unresolved reproduction questions survive beyond this chat.
 
 Project decision update on 2026-10-02: the new WavLM family uses batch 96 under
@@ -18,6 +34,39 @@ final comparison. See the latest protocol for the queue and target-freeze gate.
 | AASIST | `AASIST.pdf`, Jung et al., ICASSP 2022: integrated spectro-temporal graph attention on raw waveform. | 16 kHz, 64,600-sample input, Adam LR `1e-4`, cosine schedule; paper averages three seeds. [Author config](https://github.com/clovaai/aasist/blob/main/config/AASIST.conf) specifies batch 24 and 100 epochs; the released training implementation supplies weight decay `1e-4` and cosine minimum `5e-6`. | Its released config can evaluate a held-out set whenever development improves. The LODO implementation must not use target results for selection. Map original label order and class weights to project bona-fide=0/spoof=1 convention. |
 
 Publication policy: all models share source/target folds, target isolation, score direction, selection criterion and evaluator. Seeds are shared except the owner's declared WavLM single-seed compute-budget exception below; disclose unequal replication. Preserve model-specific input and optimization recipes, since equal batch sizes would not mean equal compute or equal methodological fidelity. If batch 128 is explored for AASIST or SAM-AASIST, give it a separate sensitivity result selected solely from source development data; do not silently substitute it for the paper-informed primary configuration. Report parameter count, memory, wall-clock time and optimizer updates so efficiency differences are visible. Do not include an interrupted WavLM pilot in the final comparison table.
+
+## P2–P4 reference findings and implementation (2026-10-05)
+
+Read the actual main plan's evaluation section and the supplementary new plan's
+normalization contract, plus relevant portions of the CFAD, SpeechFake,
+ASVspoof 5 and ASVspoof 2019 dataset papers. P2 external tests, P3 generator
+decompositions and P4 robustness support the corresponding comparisons for all
+included models, without changing their native preprocessing or training recipe.
+The existing approved macro-source-dev selection criterion remains unchanged;
+the main plan's pooled source-dev wording does not override that later decision.
+
+Verified local metadata: SpeechFake `test_all.csv` has `generator` values TTS,
+VC, NV (and `-` for genuine), so no generator classification is inferred from
+model names. ASV5's distributed README specifies ten fields despite its stale
+"FIVE columns" heading; codec is field 4, original `CODEC_SEED` field 6, attack
+field 8, label field 9 (one-based). Codec '-' is uncoded. The paper describes
+an exhaustively coded subset and singly coded remainder, so paired robustness
+must restrict to actual original-ID intersections, not assume every utterance
+has every codec. CFAD paper Tables IV/V describe independently distributed
+clean/noisy/codec partitions and seen/unseen conditions; local filenames carry
+noise/SNR or codec suffixes, preserved as metadata, not newly generated audio.
+
+Additional primary references inspected: [official ASVspoof 2021 key schema](https://github.com/asvspoof-challenge/2021/blob/main/eval-package/README.md),
+the installed MLAAD README/meta.csv schema, and the installed PartialSpoof
+README/utterance-level eval protocol. DF full keys identify eval/progress/hidden
+and notrim/trim; use eval/notrim only. The local original trial-ID files and
+VCTK/VCC source-mapping package do not provide these labels. MLAAD requires the
+referenced genuine M-AILABS audio; PartialSpoof is an utterance stress test in
+this implementation, not a segment-localization experiment. Neither missing
+keys nor genuine audio were fetched or fabricated. The shared evaluator is
+implemented for registered score CSVs, with native exporters for the two models
+already implemented. Real-data/GPU evaluation and the global freeze remain
+pending; a source-only P2 deployment-checkpoint choice must still be recorded.
 
 ## WavLM seed-budget decision (2026-10-05)
 

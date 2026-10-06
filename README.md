@@ -6,12 +6,23 @@ papers and SOTA papers are organized locally under `references/`. Start with
 notes. `AGENTS.md` directs future project work to these references. Full PDF/DOCX
 copies are excluded from Git; back up the reference folder separately.
 
+Project notes now live in [docs/](docs/INDEX.md): the experiment protocol,
+paper findings, code study guide and historical review. `README.md` remains
+at the root for GitHub/package onboarding, and `AGENTS.md` remains here for
+instruction discovery. A detailed local-only `docs/PROJECT_HANDOFF.md`
+records chat continuity, machine-specific status and unpublished run results;
+it is ignored by Git. New chats should read it when available and verify the
+live state. A fresh clone needs separate restoration of that handoff, reference
+originals and experiment artifacts; it must not pretend those are included.
+
 The fixed four-fold membership, paper-informed recipes, and four fairness
-safeguards are in `EXPERIMENT_PROTOCOL.md` (v3, updated 2026-10-02). Before
-inspecting any held-out target result from any method, complete its
-comparison-wide design/recipe freeze. Source-only pilots and training may
-continue while remaining methods are implemented; target evaluation waits for
-that gate. SpeechFake source train/dev caching runs separately from training.
+safeguards are in [docs/EXPERIMENT_PROTOCOL.md](docs/EXPERIMENT_PROTOCOL.md) (v4). On 2026-10-06 the owner approved
+independent evaluation of completed WavLM batch-96 folds before the wider model
+comparison is frozen. Each run still uses its source-only selected checkpoint
+and thresholds; target feedback must not guide any model's tuning or design.
+This is not a claim that LACF or the other methods are already frozen. Other
+target-access gates remain as recorded in the protocol. SpeechFake source
+train/dev caching runs separately from training.
 Do not start F2–F4 until `outputs/speechfake-cache.log` ends with
 `verification: PASS` and `Cache preparation complete`.
 
@@ -32,8 +43,8 @@ export PYTHONPATH=src
 set -o pipefail
 ```
 
-Run one fold and seed, then evaluate its **completed best checkpoint** once the
-comparison-wide freeze gate is complete. The
+Run one fold and seed, then evaluate its **completed best checkpoint** under the
+owner-approved independent-run freeze or an actually completed wider freeze. The
 training command reads source train/dev only; the evaluation command scores
 source dev first, calibrates both transfer branches, then opens the held-out
 target from the original read-only dataset root.
@@ -41,8 +52,8 @@ target from the original read-only dataset root.
 ```bash
 mkdir -p outputs/wavlm_bs96/f1/1234
 python -u scripts/wavlm/train.py --fold f1 --seed 1234 --batch-size 96 --run-name wavlm_bs96 --data-root /mnt/drive/audio-deepfake-cache --num-workers 16 --eval-workers 4 --prefetch-factor 2 2>&1 | tee -a outputs/wavlm_bs96/f1/1234/training.log
-# Run only after the comparison-wide freeze is complete:
-python -u scripts/wavlm/evaluate.py --fold f1 --seed 1234 --run-name wavlm_bs96 --source-data-root /mnt/drive/audio-deepfake-cache --target-data-root /mnt/salt/datasets/audio-deepfake
+# Owner-approved completed WavLM fold; no target-guided tuning:
+python -u scripts/wavlm/evaluate.py --fold f1 --seed 1234 --run-name wavlm_bs96 --source-data-root /mnt/drive/audio-deepfake-cache --target-data-root /mnt/salt/datasets/audio-deepfake --confirm-run-frozen
 ```
 
 Use seed **1234 only** for WavLM across `f1`, `f2`, `f3`, `f4`, per the owner's
@@ -52,6 +63,113 @@ interrupted run lacks `training_complete.json` and cannot be evaluated as a
 finished run. Earlier interrupted WavLM pilots were removed; the completed
 batch-64 F1 is preserved separately. New batch-96 runs live in
 `outputs/wavlm_bs96/<fold>/<seed>/`.
+
+### P2 external tests, P3 generators and P4 robustness
+
+Shared implementation: `scripts/evaluate_extended.py`, `evaluation_data.py`
+(official test metadata) and `analysis.py` (frozen thresholds/subgroup reports).
+No additional training is needed. Native inference adapters currently exist for
+WavLM and AASIST; later models use the same report contract. The correct raw
+root is `/mnt/salt/datasets/audio-deepfake`, not `datsets`.
+
+**Do not execute these examples until the comparison-wide freeze is complete.**
+They do not resume an interrupted fold or complete missing models' pilots.
+Report-only commands use CPU and reuse verified scores, without loading a GPU
+model. All rates are fractions; source thresholds stay fixed. Generator rows
+share the complete bona-fide reference and parent normalization statistics.
+
+```bash
+# After P1 scoring, no extra inference for P3 or ASV5 P4:
+python scripts/evaluate_extended.py --protocol p3 --dataset speechfake --run-dir outputs/wavlm_bs96/f1/1234 --confirm-protocol-frozen
+python scripts/evaluate_extended.py --protocol p3 --dataset asv5 --run-dir outputs/wavlm_bs96/f3/1234 --confirm-protocol-frozen
+python scripts/evaluate_extended.py --protocol p3 --dataset asv2019 --run-dir outputs/wavlm_bs96/f4/1234 --confirm-protocol-frozen
+python scripts/evaluate_extended.py --protocol p4 --dataset asv5 --run-dir outputs/wavlm_bs96/f3/1234 --confirm-protocol-frozen
+
+# Additional CFAD clean/noisy/codec test inference, ONLY with GPU availability:
+python -u scripts/evaluate_extended.py --protocol p4 --dataset cfad --run-dir outputs/wavlm_bs96/f2/1234 --export-scores --model wavlm --confirm-protocol-frozen
+# Secondary seen partition: add --cfad-split test_seen (kept separate).
+```
+
+For AASIST, replace the run directory with `outputs/aasist/<fold>/<seed>` and
+use `--model aasist` on export commands. Keep its declared seed plan.
+
+P2 first needs a documented **single** source-only deployment-checkpoint choice
+per model/seed, before external scores. The following F1 path is an example,
+**not a decision that F1 must be chosen**. Replace the reason with the actual
+prespecified/source-only selection rule; do not choose a fold on target scores.
+Record creation checks source scores and exits without opening external data.
+If source CSVs are not yet exported, record creation can add
+`--export-scores --model wavlm` to score **source dev only**.
+
+```bash
+python scripts/evaluate_extended.py --protocol p2 --dataset asv2021_df --run-dir outputs/wavlm_bs96/f1/1234 --write-selection-record outputs/wavlm_bs96/p2_selection_1234.json --selection-reason 'REPLACE with the documented source-only selection rule' --confirm-protocol-frozen
+
+# Supply the full official DF keys, NOT the unlabeled trial-ID list:
+python -u scripts/evaluate_extended.py --protocol p2 --dataset asv2021_df --run-dir outputs/wavlm_bs96/f1/1234 --selection-record outputs/wavlm_bs96/p2_selection_1234.json --df-keys /path/to/keys/DF/CM/trial_metadata.txt --export-scores --model wavlm --confirm-protocol-frozen
+
+# SAME checkpoint/selection record for both stress tests:
+python -u scripts/evaluate_extended.py --protocol p2 --dataset partialspoof --run-dir outputs/wavlm_bs96/f1/1234 --selection-record outputs/wavlm_bs96/p2_selection_1234.json --export-scores --model wavlm --confirm-protocol-frozen
+python -u scripts/evaluate_extended.py --protocol p2 --dataset mlaad_mailabs --run-dir outputs/wavlm_bs96/f1/1234 --selection-record outputs/wavlm_bs96/p2_selection_1234.json --mailabs-root /path/to/genuine/M-AILABS --export-scores --model wavlm --confirm-protocol-frozen
+```
+
+The local ASV2021 trial list lacks labels; its VCTK/VCC mapping is not the CM
+key. Official [DF full evaluation keys](https://github.com/asvspoof-challenge/2021/tree/main/eval-package)
+are required. MLAAD's installed README requires the referenced genuine
+M-AILABS files; unrelated datasets cannot substitute for them. These two inputs
+were not found in the inspected dataset locations. No keys/audio were downloaded
+or datasets modified. PartialSpoof reports utterance detection only. Generator-
+family novelty still needs verified cross-dataset family annotations; attack-ID
+reports do not invent that claim.
+
+Outputs: `outputs/<family>/<fold>/<seed>/analyses/<protocol>/<dataset>/metrics.json`
+(CFAD paths include `cfad_test_unseen` or `cfad_test_seen`), plus separately
+registered supplementary scores when additional inference is needed. Existing
+reports are never overwritten. See `docs/EXPERIMENT_PROTOCOL.md` for normalization,
+bootstrap, paired robustness and single-class rules.
+
+### Independent completed-fold P1 evaluation
+
+Owner-approved queue, F1→F2→F3, seed 1234:
+
+```bash
+bash scripts/wavlm/evaluate_folds.sh
+```
+
+Uses batch 1, BF16, 8 workers, prefetch 2 and 1,000 bootstrap resamples, with
+**no GPU allocator limit**, as requested after the initial 8 GiB cap rejected
+a long full recording despite free physical memory. Increasing workers is not
+supported by the short source-only benchmark (under 0.4% loader waiting).
+Native full-utterance input is unchanged. Each run's source-dev reload/calibration
+is verified before its target is opened. The queue stops on failure, refuses
+existing reports, and takes a family-wide evaluation lock. It records
+`comparison_wide_freeze_confirmed_by_operator=false` and the owner-approved
+independent-run policy, not a fictional completed global freeze.
+
+Interrupted scores resume from a checksum-verified, checkpoint-bound
+`*.csv.progress.json` journal; completed source score files are reused only
+after manifest verification. No recording is skipped or shortened. A genuine
+OOM still stops the queue and commits the completed prefix. A stale journal
+(for example after a forced kill) fails closed instead of trusting new bytes.
+Pre-journal `.tmp` files require explicit operator adoption after checking their
+origin: `WAVLM_ADOPT_LEGACY_PARTIAL_FOLD=f1 bash scripts/wavlm/evaluate_folds.sh`.
+That one-time setting is not required once F1's recovery journal exists.
+
+Reports/scores are kept separately in `outputs/wavlm_bs96/<fold>/1234/`;
+each fold has `evaluation.log`. The three-fold aggregate is
+`outputs/wavlm_bs96/partial_summary_f1_f2_f3.json`, explicitly non-final and
+missing F4. This queue runs native P1 metrics, not all P2–P4 supplementary tests.
+
+After F4 is actually trained, evaluate only the new fold:
+
+```bash
+bash scripts/wavlm/evaluate_folds.sh f4
+```
+
+That command preserves F1/F2/F3 and automatically creates `summary.json` from
+all four existing reports. It does not resume or retrain F4. The complete
+summary retains equal-weight per-fold aggregation and the single-seed limitation.
+Neither partial nor complete summary pools the target datasets. Existing
+summary artifacts are never overwritten.
 
 To queue **F2 -> F3 -> F4**, source-only, for one seed:
 

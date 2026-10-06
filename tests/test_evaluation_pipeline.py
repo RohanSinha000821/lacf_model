@@ -262,6 +262,39 @@ def test_wavlm_existing_score_validation(synthetic_run):
                           num_workers=0, prefetch_factor=2, manifest=manifest)
 
 
+def test_wavlm_recovers_legacy_prefix_then_registers_full_export(synthetic_run, monkeypatch):
+    directory, _, target, _, _ = synthetic_run
+    manifest = json.loads((directory / "score_manifest.json").read_text())
+    path = directory / "target_scores.csv"
+    content = path.read_text().splitlines(keepends=True)
+    path.unlink()
+    path.with_name(path.name + ".tmp").write_text("".join(content[:3]))
+    del manifest["score_sha256"][path.name]
+    save_score_manifest(directory, manifest)
+    visited = []
+
+    def loader(dataset, **kwargs):
+        visited.extend(dataset.records)
+        assert kwargs["batch_size"] == 1
+        return object()
+
+    def rows(model, loader, records, domain, root, device, *, start_offset):
+        assert start_offset == 2
+        for index, (record, label) in enumerate(records, start_offset):
+            yield protocol.utterance_id(record, domain, root), domain, label, 100 + index
+
+    monkeypatch.setattr(wavlm, "make_wavlm_eval_loader", loader)
+    monkeypatch.setattr(wavlm, "score_rows", rows)
+    labels, scores = wavlm.score_split(None, "speechfake", "test", target, path, None,
+                                     num_workers=0, prefetch_factor=2, manifest=manifest,
+                                     adopt_legacy_partial=True)
+    assert len(visited) == 2
+    assert labels.tolist() == [0, 0, 1, 1]
+    assert scores.tolist() == [100, 101, 102, 103]
+    verify_score_digest(path, manifest)
+    assert path.read_text() == "".join(content)
+
+
 @pytest.mark.parametrize("case", ["fold", "seed", "config_fold", "epoch", "sources", "target", "macro"])
 def test_wavlm_checkpoint_guards(synthetic_run, case):
     _, _, _, _, completion = synthetic_run
@@ -307,7 +340,7 @@ def test_manifest_refuses_legacy_or_unregistered_scores(synthetic_run):
         load_score_manifest(directory, "f1", 1234, checkpoint_digest(directory / "best.pt"))
 
 
-@pytest.mark.parametrize("case", ["valid", "no_completion", "no_checkpoint", "checkpoint_epoch", "checkpoint_seed",
+@pytest.mark.parametrize("case", ["valid", "independent", "no_completion", "no_checkpoint", "checkpoint_epoch", "checkpoint_seed",
                                   "changed_checkpoint", "no_manifest", "source_macro"])
 def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch, case):
     directory, _, _, _, _ = synthetic_run
@@ -345,17 +378,19 @@ def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch
         return [0, 0, 1, 1], ([2, 1, -1, -2] if case == "source_macro" else [-2, -1, 1, 2])
 
     monkeypatch.setenv("PROJECT_ROOT", str(directory.parents[3]))
-    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1", "--seed", "1234", "--bootstrap-resamples", "5"])
+    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1", "--seed", "1234", "--bootstrap-resamples", "5", "--confirm-run-frozen" if case == "independent" else "--confirm-protocol-frozen"])
     monkeypatch.setattr(wavlm.torch, "load", lambda *args, **kwargs: checkpoint)
     monkeypatch.setattr(wavlm.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(wavlm, "WavLMWA", lambda **kwargs: FakeModel())
     monkeypatch.setattr(wavlm, "score_split", split)
-    if case == "valid":
+    if case in ("valid", "independent"):
         wavlm.main()
         assert visited == ["asv2019", "asv5", "cfad", "speechfake"]
         report = json.loads((directory / "metrics.json").read_text())
         assert report["checkpoint_epoch"] == 2
         assert report["seed"] == 1234
+        assert report["comparison_wide_freeze_confirmed_by_operator"] is (case != "independent")
+        assert report["completed_run_freeze_confirmed_by_operator"] is True
     else:
         with pytest.raises((ValueError, FileNotFoundError)):
             wavlm.main()

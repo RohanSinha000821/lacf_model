@@ -51,3 +51,17 @@ Thumbs.db
 # Local research reference originals; index/checksums remain versionable
 /references/**/*.pdf
 /references/**/*.docx
+
+# Local chat continuity: unpublished results and machine-specific live status
+/docs/PROJECT_HANDOFF.md
+/docs/local/
+
+# SSH/private credential material must never be accidentally published
+.ssh/
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+*.p12
+*.pfx
+*.ppk

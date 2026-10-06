@@ -31,7 +31,7 @@ def flat_metrics(report: dict) -> dict[str, float]:
     return values
 
 
-def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, non_final=False) -> dict:
+def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, non_final=False, folds=None) -> dict:
     required_seeds = final_seeds_for(model)
     if seeds is None:
         seeds = required_seeds
@@ -39,9 +39,16 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
         raise ValueError(f"Publication summary for {model} requires exactly seeds {required_seeds}; use non-final mode for exploration")
     if not seeds or len(set(seeds)) != len(seeds) or any(type(seed) is not int or seed < 0 for seed in seeds):
         raise ValueError("At least one distinct non-negative seed is required")
+    selected_folds = tuple(FOLDS) if folds is None else tuple(folds)
+    if not selected_folds or len(set(selected_folds)) != len(selected_folds) or any(f not in FOLDS for f in selected_folds):
+        raise ValueError("Select distinct valid folds")
+    if not non_final and set(selected_folds) != set(FOLDS):
+        raise ValueError("A publication summary requires all four folds; use non-final mode for partial results")
+    selected_folds = tuple(f for f in FOLDS if f in selected_folds)
     by_fold = {}
     expected_metric_names = None
-    for fold_name, fold in FOLDS.items():
+    for fold_name in selected_folds:
+        fold = FOLDS[fold_name]
         runs = []
         for seed in seeds:
             path = root / model / fold_name / str(seed) / "metrics.json"
@@ -91,8 +98,8 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
             for name in metric_names
         }
     equal_fold_mean = {
-        name: float(np.mean([by_fold[fold][name]["mean"] for fold in FOLDS]))
-        for name in by_fold["f1"]
+        name: float(np.mean([by_fold[fold][name]["mean"] for fold in selected_folds]))
+        for name in by_fold[selected_folds[0]]
     }
     return {
         "model": model,
@@ -101,7 +108,11 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
         "across_seed_variability_estimated": len(seeds) > 1,
         "seed_policy": "single_seed_compute_budget" if model == "wavlm_bs96" and seeds == (1234,) else "multi_seed" if len(seeds) > 1 else "single_seed_exploratory",
         "per_fold": by_fold,
-        "equal_weight_four_fold_mean": equal_fold_mean,
+        "completed_folds": list(selected_folds),
+        "missing_folds": [f for f in FOLDS if f not in selected_folds],
+        "four_fold_complete": len(selected_folds) == len(FOLDS),
+        "equal_weight_four_fold_mean": equal_fold_mean if len(selected_folds) == len(FOLDS) else None,
+        "equal_weight_available_fold_mean": equal_fold_mean,
         "target_datasets_pooled": False,
         "publication_summary": not non_final,
     }
@@ -113,11 +124,17 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path("outputs"))
     parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96; three protocol seeds for other models")
     parser.add_argument("--non-final", action="store_true", help="Allow exploratory seed lists; write exploratory_summary.json")
+    parser.add_argument("--folds", choices=tuple(FOLDS), nargs="+", help="Explicit subset requires --non-final; final summary still requires four folds")
     args = parser.parse_args()
-    output = args.root / args.model / ("exploratory_summary.json" if args.non_final else "summary.json")
+    if args.folds and not args.non_final and set(args.folds) != set(FOLDS):
+        parser.error("Partial fold selection requires --non-final")
+    filename = ("partial_summary_" + "_".join(f for f in FOLDS if f in args.folds) + ".json"
+                if args.non_final and args.folds and len(set(args.folds)) < len(FOLDS)
+                else "exploratory_summary.json" if args.non_final else "summary.json")
+    output = args.root / args.model / filename
     if output.exists():
         raise FileExistsError(f"Summary already exists; refusing to overwrite: {output}")
-    summary = summarize(args.root, args.model, tuple(args.seeds) if args.seeds is not None else None, non_final=args.non_final)
+    summary = summarize(args.root, args.model, tuple(args.seeds) if args.seeds is not None else None, non_final=args.non_final, folds=args.folds)
     output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Saved {output}")
 
