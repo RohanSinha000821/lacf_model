@@ -326,3 +326,48 @@ files does not change model-specific preprocessing, the native versus
 matched-duration distinction, any scientific gate or the validity of earlier
 scores. Do not rerun or overwrite valid folds merely to switch storage roots.
 See README for commands and the code guide for the copying/validation flow.
+
+## LACF primary implementation and fidelity (2026-10-08)
+
+The primary frozen architecture/trainer is implemented under `lacf/` and
+`scripts/lacf/`, separate from SOTA code. The actual main DOCX, including all
+tables/equations, and relevant original supplementary plans were checked.
+`Updated_Pipeline.pdf` resolves the classifier ordering to pre-linear LN(35)
+and LN(64), with GELU/Dropout(0.2) after each hidden linear layer, then 16→1.
+Eight concepts, three templates, individual-template normalization before
+prototype averaging, last-state masked WavLM pooling, adapter, temperature,
+relation ordering/dimensions and all three loss equations retain plan values.
+
+The later macro source-dev EER decision supersedes the main plan's older pooled
+selection wording. The existing centered source-dev interval, batch 4×8,
+constant LR and three LACF seeds are preserved. Primary optimization includes
+all epoch draws and divides accumulated loss by the actual number of
+microbatches in each update, including the final incomplete group. Bona-fide
+JS is computed within each microbatch, with zero for an all-spoof microbatch;
+it is not replaced with a new effective-batch/class weighting rule.
+
+Processor/padding and precision were underspecified in the main plan. After
+this was flagged, the owner delegated those implementation choices. Use FP32
+and the selected checkpoints' standard processors: WavLM Base+ does not
+normalize waveform amplitudes, right-pads with zero and supplies a validity
+mask; unfused CLAP repeat-pads short audio, with no fabricated CLAP padding mask.
+The same physical interval is selected before independent resampling; CLAP
+cannot select a second crop. Too-short clips fail rather than being skipped.
+Processor settings/revisions and enabled feature/loss/fusion configuration are
+recorded in every run. Frozen WavLM/CLAP stay eval/no-grad in training.
+
+Sources for processor behavior are the [WavLM Base+ checkpoint settings](https://huggingface.co/microsoft/wavlm-base-plus/raw/main/preprocessor_config.json)
+and [unfused CLAP checkpoint settings](https://huggingface.co/laion/clap-htsat-unfused/raw/main/preprocessor_config.json),
+cross-checked with the installed Transformers 4.57.6 implementation. No CLAP
+original paper is included in the supplied canonical reference set; its API
+behavior was verified in primary checkpoint settings and installed source.
+
+Explicit relation-group/loss configuration and a dimension-declaring fusion
+interface prepare later ablations without implementing unspecified variants or
+changing the loop. Defaults implement the primary model. FT4, ablation runs,
+matched-duration execution and a native target exporter remain later work.
+Shared score orientation, calibration, raw/transductive reporting and confidence
+interval code are unchanged. Implementation tests are synthetic CPU checks,
+not source-only recipe/GPU validation or target-access authorization. Training
+requires verified cache completion, available separately acquired checkpoints,
+an authorized source-only pilot and the existing freeze discipline.

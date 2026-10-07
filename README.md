@@ -334,7 +334,77 @@ contract as WavLM under `outputs/aasist/<fold>/1234/`; after all four seed-1234 
 python scripts/summarize_results.py --model aasist
 ```
 
-## Shared metrics for every SOTA model
+## LACF: primary frozen implementation
+
+LACF lives separately from the SOTA adapters under
+`src/audio_deepfake_detection/lacf/`, with its source-only entry point at
+`scripts/lacf/train.py`. The primary model follows the owner-designated main
+DOCX and the classifier diagram in `Updated_Pipeline.pdf`:
+
+- One original physical interval up to 10 s: random for training, centered for
+  development. Both views resample that same interval independently to 16/48 kHz.
+- Frozen WavLM Base+ last hidden states with feature-frame masked mean pooling;
+  trainable `LN → 768→512 → GELU → Dropout(0.2) → 512→512` adapter and L2 normalization.
+- Frozen unfused CLAP projected audio/text features; exactly eight ordered
+  concepts and three prescribed templates. Normalize each template embedding,
+  average each concept's three templates, then normalize its fixed prototype.
+- Temperature 0.07; `[p_W,p_C,abs_difference,agreement,JS,H_W,H_C]` gives 35 features.
+  Head: `LN(35) → Linear(35,64) → GELU → Dropout(0.2) → LN(64) → Linear(64,16)
+  → GELU → Dropout(0.2) → Linear(16,1)`. Higher logits mean spoof.
+- Detection BCE-with-logits plus 0.25 WavLM spoof-group BCE plus 0.10 bona-fide
+  JS consistency; the consistency contribution is zero for all-spoof microbatches.
+- Equal source-domain/class replacement sampling; AdamW 3e-4, weight decay 1e-4;
+  batch 4 × accumulation 8, constant LR, max 30 epochs, patience 5. The existing
+  macro source-dev EER rule governs selection; ties keep the earlier checkpoint.
+  LACF retains seeds 1234/2345/3456, unlike single-seed WavLM/AASIST.
+
+After flagging unspecified processor/precision details, the owner delegated
+those choices on 2026-10-08. Use standard checkpoint processors and FP32:
+WavLM Base+ does **not** normalize waveform amplitudes and right-zero-pads with
+a validity mask; CLAP repeat-pads short signals to its 10 s feature window.
+CLAP receives only the already-selected segment, so no second random crop is
+allowed. Very short clips with fewer than 400 WavLM samples fail clearly;
+they are never silently skipped or assigned fake valid frames. Frozen encoders
+remain in evaluation mode even while the adapter/head train.
+
+All pretrained loads are `local_files_only=True`. Missing caches cause a clear
+load failure; this command cannot download weights. Cache verification is a
+separate operational prerequisite. The trainer requires an explicit
+`--confirm-cache-verified` acknowledgment, which is not an automated checksum
+audit. Worker defaults are zero until a separately authorized source-only pilot
+establishes suitable loader settings. No training is authorized by these docs.
+
+Inspect the interface without starting work:
+
+```bash
+python scripts/lacf/train.py --help
+```
+
+When training is separately authorized and prerequisites are satisfied, one
+manual invocation is `python -u scripts/lacf/train.py --fold f1 --seed 1234
+--confirm-cache-verified`. Outputs use `outputs/lacf/<fold>/<seed>/` with complete
+component/processor configuration, hashes, best/last checkpoints and a log.
+The selected checkpoint is source-dev reloaded before the completion marker.
+An existing run directory, including partial work, is never overwritten.
+
+`ComponentConfig` explicitly controls prescribed relation groups and applicable
+semantic/consistency losses. Dimensions and unused frozen branches follow that
+configuration. A fusion module can be explicitly supplied with a declared
+dimension/configuration without changing the epoch loop. Defaults implement
+the primary model; no ablation launcher, FT4, duration variant or target exporter
+is provided in this change. Shared raw/transductive metrics and CI utilities are
+unchanged; native LACF score export remains later work after source validation.
+
+Synthetic CPU checks only:
+
+```bash
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q tests/test_lacf.py
+```
+
+These tests establish component/loop correctness, not pretrained/GPU feasibility,
+verified source-cache completion, real-data validation or a comparison-wide freeze.
+
+## Shared metrics for every detector
 
 Each model writes `source_dev_<dataset>.csv` for the three active source domains
 and `target_scores.csv` in its run directory. CSV columns are

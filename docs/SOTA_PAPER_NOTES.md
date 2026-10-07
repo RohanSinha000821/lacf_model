@@ -105,3 +105,36 @@ scientific candidate or a completed full-development validation. Full source-dev
 scoring and selected-checkpoint reload checks remain pending. Pilot evidence and
 measured CUDA peaks remain in local ignored outputs and the handoff; no target
 results informed these actions or adaptations.
+
+## LACF main-plan fidelity (2026-10-08)
+
+Read the actual owner-designated `LACF_Audio_Deepfake_Implementation_PlanV2.docx`
+completely, with table cells and mathematical objects, alongside the original
+`Updated_Pipeline.pdf` and `New_plan_LACF_Model.pdf` supplements. LACF is kept
+outside SOTA code. The primary architecture is implemented; only synthetic CPU
+behavior has been verified. The exact eight concepts/three templates, normalized
+template-mean prototypes, Base+ masked last-state pool, 768→512 adapter,
+35-dimensional relation ordering, 35→64→16→1 head, 0.07 temperature and
+`L_det + 0.25 L_sem + 0.10 L_BF` follow those originals.
+
+The pipeline's classifier diagram resolves the main DOCX's brief wording:
+LN before 35→64 and before 64→16; GELU/Dropout(0.2) after each, followed by
+16→1. Later approved macro source-EER selection/centered dev cropping and the
+recorded batch 4×8/constant-LR assumptions remain authoritative. No pooled
+source-EER checkpoint selection or all-four-source retraining is introduced.
+
+The owner delegated missing processor/precision choices after they were flagged.
+FP32 and standard checkpoint processors are recorded implementation choices,
+not settings claimed to appear in the main plan. [WavLM Base+ configuration](https://huggingface.co/microsoft/wavlm-base-plus/raw/main/preprocessor_config.json)
+sets waveform normalization false and returns validity masks. [Unfused CLAP configuration](https://huggingface.co/laion/clap-htsat-unfused/raw/main/preprocessor_config.json)
+sets 48 kHz, a 10 s feature window and repeat-padding; the selected physical
+segment prevents its random long-audio truncation from selecting another view.
+The installed Transformers API returns projected 512-dimensional CLAP features.
+No CLAP paper original is supplied in the canonical reference set. No weights
+were downloaded; all model-loading paths are local-only.
+
+Frozen encoders also stay in eval mode, preventing dropout/augmentation/state
+updates. Auxiliary-loss switches omit inapplicable terms explicitly and feature
+configuration determines head dimensions/unused branches. FT4 and ablation
+execution remain deferred. Full source/GPU validation, final freeze and native
+LACF score export remain required before comparison results.

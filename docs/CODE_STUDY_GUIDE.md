@@ -1,6 +1,6 @@
 # Python code study guide
 
-This guide describes the current implementation, not the proposed LACF architecture. WavLM-WA and AASIST are implemented; AASIST still needs its real-data/GPU source-only pilot, and the other models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Section 13 adds the corresponding AASIST path. Studying these files does not require starting another training or evaluation process.
+This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU verification only. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13 and 15 cover AASIST and LACF. Studying these files does not require starting training or evaluation.
 
 ## 1. The overall flow
 
@@ -436,3 +436,42 @@ The [concise companion report](wavlm_f1_f3_short_report/README.md) reuses those
 verified aggregate results for a shorter results note with an explicit bootstrap
 explanation. Its local builder preserves the original detailed report and performs
 no model inference or bootstrap rerun.
+
+## 15. LACF: primary frozen model and training
+
+LACF code is separate from `sota/`. Its flow is:
+
+```text
+scripts/lacf/train.py
+  → lacf/pretrained.py: cached frozen encoders/processors and 24 text prompts → 8 prototypes
+  → protocol.read_dataset(): three official source train/dev partitions only
+  → lacf/data.py: one native-rate segment → 16/48 kHz views; domain/class-balanced sampler
+  → lacf/pretrained.py: processor collation, valid sample masks, CLAP features
+  → lacf/model.py: masked speech pool → adapter → anchor distributions → relation head
+  → lacf/training.py: configured losses/accumulation → trainable-parameter AdamW
+  → shared metrics.compute_eer(): separate source domains → equal-domain macro selection
+  → best/last checkpoints → selected source-dev reload → completion record
+```
+
+| File / component | Responsibility |
+|---|---|
+| `lacf/data.py`: `LACFDataset` | Reuses shared audio loading/resampling. Selects a random train or centered dev segment once at the original rate. Short audio remains available signal before processor padding. |
+| `balanced_sampler()` / `make_loader()` | Equal domain and class probability, uniform within each bucket, N replacement draws, no dropped final batch; development is sequential batch one. |
+| `lacf/pretrained.py`: `load_local_model()` | Local-only WavLM Base+/unfused CLAP loads in FP32; processor revisions follow cached model revisions. Builds exact prompts and fixed normalized prototype buffer without gradients. |
+| `DualViewCollator` | WavLM right padding with validity masks and no waveform normalization; CLAP 48 kHz repeat-padding. Rejects invalid/too-short input and prevents secondary CLAP cropping. |
+| `lacf/model.py`: `ComponentConfig` | Explicit feature groups and loss switches/coefficients. Defaults are all 35 primary features and all three losses. |
+| `LACF` | Frozen encoders remain eval/no-grad; only adapter/head train by default. Converts sample masks to WavLM feature-frame masks, then masked mean pools. Returns views/features and one spoof logit. |
+| `RelationFeatures` / `relation_classifier()` | Ordered probability/disagreement/agreement/JS/entropy concatenation and dimension-derived 64→16→1 head. Explicit replacement fusion declares its dimension and configuration. |
+| `LACFLoss` | Unweighted detection BCE, spoof-group semantic BCE and bona-fide-only JS; undefined/disabled auxiliary losses are omitted explicitly, and an all-spoof batch has zero consistency contribution. |
+| `lacf/training.py`: `train_epoch()` | FP32, actual-microbatch-count accumulation, finite-loss/gradient checks; loop consumes the model's configured objective without ablation-specific branching. |
+| `source_eer()` / `make_optimizer()` | Shared EER on source scores / AdamW on enabled trainable parameters only. |
+| `scripts/lacf/train.py` | Guards existing outputs/cache acknowledgment/CUDA; records components, processor policy, provenance, seed plan and recipe. Strict macro source-EER improvement, patience five, selected-checkpoint reload before completion. |
+| `tests/test_lacf.py` | Synthetic audio, fake encoders and a random tiny WavLM configuration. Tests equations, actual feature-mask conversion, freezing, configuration, accumulation, target isolation and preservation; never loads downloaded weights or real data. |
+
+The main model uses 10 s crops, batch 4×8, AdamW 3e-4/weight decay 1e-4,
+30 epochs/patience 5 and the unchanged three-seed plan. Configurations record
+the later protocol's centered dev/macro EER/batch choices separately from plan
+architecture and the owner-delegated FP32/checkpoint-processor choices.
+No FT4, ablation execution, target scoring or new threshold/CI logic is added.
+After separately authorized source/GPU validation, a native LACF exporter still
+needs the common completed-checkpoint, score-manifest and source-first gates.
