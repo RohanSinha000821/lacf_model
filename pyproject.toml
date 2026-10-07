@@ -1,7 +1,7 @@
 [project]
 name = "audio-deepfake-detection"
 version = "0.1.0"
-description = "Add your description here"
+description = "Source-only training and evaluation for audio deepfake detection"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -16,9 +16,6 @@ dependencies = [
     "tqdm>=4.66.5",
     "transformers==4.57.6",
 ]
-
-[project.scripts]
-audio-deepfake-detection = "audio_deepfake_detection:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]

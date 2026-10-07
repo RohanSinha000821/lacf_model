@@ -65,7 +65,7 @@ File: [protocol.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake
 | F3 | ASVspoof2019, CFAD, SpeechFake | ASVspoof5 / eval |
 | F4 | ASVspoof5, CFAD, SpeechFake | ASVspoof2019 / eval |
 
-Shared labels are `0 = bona fide` and `1 = spoof`. As of the owner's 2026-10-05 decision, WavLM family `wavlm_bs96` uses seed `(1234,)` only; other models retain `(1234, 2345, 3456)`. `final_seeds_for(model)` returns the applicable summary seed policy.
+Shared labels are `0 = bona fide` and `1 = spoof`. Owner decisions on 2026-10-05 (WavLM) and 2026-10-06 (AASIST) set families `wavlm_bs96` and `aasist` to seed `(1234,)` only; remaining models retain their declared plans. `final_seeds_for(model)` returns the applicable summary seed policy.
 
 | Function | Input | Output / responsibility |
 |---|---|---|
@@ -257,7 +257,7 @@ File: [summarize_results.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/s
 | `summarize()` | Output root, model family, seeds, optional non-final flag | Per-fold mean/sample standard deviation and equal-weight mean across four folds; validates report identities and required uncertainty metadata. |
 | `main()` | CLI arguments | Writes `summary.json`, or `exploratory_summary.json` in non-final mode; refuses overwrites. |
 
-Final mode requires all four folds. WavLM family `wavlm_bs96` defaults to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
+Final mode requires all four folds. Families `wavlm_bs96` and `aasist` default to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
 
 The batch-96 family is separate from historical batch-64 WavLM runs. A completed batch-64 F1 must not silently fill the batch-96 family's F1 slot; a consistent final batch-96 table requires its own F1 run. The F2→F3→F4 queue alone does not provide F1, and an interrupted F4 cannot count as a completed fold. A three-fold report remains partial.
 
@@ -278,6 +278,20 @@ File: [prepare_cache.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/prepa
 
 Raw source files are not modified. Source/cache paths are distinct, and unsafe cache locations are rejected. Existing-copy checks are size-based, not cryptographic content verification. Target test/eval audio is not cached by this train/dev job.
 
+The separate [prepare_test_cache.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/prepare_test_cache.py)
+copies the four `FOLDS` target partitions with the same readers. `copy_verified()`
+checks source/cache containment, SHA-256 verifies full file bytes, refuses any
+existing-cache mismatch, and publishes new files atomically without replacement.
+`cache_target()` copies target metadata, records path/label/size/hash journals,
+and compares cached canonical IDs and labels with the original split before
+writing a partition completion marker. `main()` takes the cache lock, applies
+bounded copying and disk-space guards, and writes `all_complete.json` only
+when all requested partitions pass. This CPU-only cache job performs no model
+inference or audio transformation. Require the complete markers before future
+authorized evaluations use the target cache; retain valid existing scores.
+Synthetic preservation/membership checks live in `tests/test_test_cache.py`.
+
+
 ## 11. Output files: what creates and consumes them?
 
 Current batch-96 layout: `outputs/wavlm_bs96/<fold>/<seed>/`.
@@ -293,7 +307,7 @@ Current batch-96 layout: `outputs/wavlm_bs96/<fold>/<seed>/`.
 | `target_scores.csv` | Model-specific evaluator after source checks | Held-out target metrics. |
 | `score_manifest.json` | Evaluation helpers | Checkpoint/completion/split/CSV identity and integrity checks. |
 | `metrics.json` | WavLM or generic evaluator | One fold/seed report, including uncertainty and provenance. |
-| `summary.json` at model-family root | Summary script | Publication aggregation across four folds and three seeds. |
+| `summary.json` at model-family root | Summary script | Publication aggregation across four folds using the model's declared seed policy. |
 
 A saved best checkpoint alone does not mean training is complete. A completion marker does not mean held-out evaluation has occurred. A metrics report is separate from both.
 
@@ -301,7 +315,7 @@ A saved best checkpoint alone does not mean training is complete. A completion m
 
 - [train_folds.sh](/mnt/drive/rohan/audio-deepfake-detection/scripts/wavlm/train_folds.sh) is Bash, not Python. It activates the environment, queues F2→F3→F4 at batch 96, logs output and uses a family-wide lock to prevent a second queue. Failure or a missing completion marker stops subsequent folds. It does not launch target testing or resume interrupted runs.
 - [activate.sh](/mnt/drive/rohan/audio-deepfake-detection/activate.sh) configures the shared environment and project paths. [pyproject.toml](/mnt/drive/rohan/audio-deepfake-detection/pyproject.toml) declares package/dependency settings; `uv.lock` records dependency resolution.
-- [package __init__.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake_detection/__init__.py) has a placeholder `main()` greeting for the package CLI; it is not the training entry point. `sota/__init__.py` is an empty package initializer.
+- [package __init__.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake_detection/__init__.py) is a package initializer. Training, scoring and cache commands use the documented entry points under `scripts/`; there is no package-level greeting command. `sota/__init__.py` is an empty package initializer.
 - [test_metrics.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_metrics.py): small numerical examples for ranking, thresholds, normalization, bootstrap and score validation.
 - [test_evaluation_pipeline.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_evaluation_pipeline.py): completed-run gates, canonical membership, manifests/checksums, source-before-target behavior and summary checks.
 - [test_data_cache.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_data_cache.py): SpeechFake duplicates/overlaps/path handling and cache argument checks.
@@ -407,3 +421,18 @@ cover schemas, safe paths, membership, source-first gates, fixed normalization,
 single-class metrics, genuine-reference deduplication, paired IDs, mock CPU
 export, immutable selection records, supplementary provenance and score-tamper
 rejection. This does not establish real-data/GPU inference validation.
+
+## Local reporting artifacts
+
+The [supervisor report folder](wavlm_f1_f3_report/README.md) holds ignored report
+sources and exports. Its numerical extraction reads completed native P1 score
+CSVs and run records, verifies provenance and point metrics, and reuses saved
+confidence intervals. Report generation does not train, run inference, repeat
+bootstrap experiments or modify original outputs. The report README explains
+the standalone LaTeX source, plotting files and separate PDF reading-copy export.
+These helpers are reporting utilities rather than model entry points.
+
+The [concise companion report](wavlm_f1_f3_short_report/README.md) reuses those
+verified aggregate results for a shorter results note with an explicit bootstrap
+explanation. Its local builder preserves the original detailed report and performs
+no model inference or bootstrap rerun.

@@ -106,7 +106,7 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
         "seeds": list(seeds),
         "training_seed_count": len(seeds),
         "across_seed_variability_estimated": len(seeds) > 1,
-        "seed_policy": "single_seed_compute_budget" if model == "wavlm_bs96" and seeds == (1234,) else "multi_seed" if len(seeds) > 1 else "single_seed_exploratory",
+        "seed_policy": "single_seed_compute_budget" if required_seeds == seeds == (1234,) else "multi_seed" if len(seeds) > 1 else "single_seed_exploratory",
         "per_fold": by_fold,
         "completed_folds": list(selected_folds),
         "missing_folds": [f for f in FOLDS if f not in selected_folds],
@@ -122,7 +122,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize four-fold LODO results using the model's declared seed policy")
     parser.add_argument("--model", required=True)
     parser.add_argument("--root", type=Path, default=Path("outputs"))
-    parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96; three protocol seeds for other models")
+    parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96/aasist; three protocol seeds for other models")
     parser.add_argument("--non-final", action="store_true", help="Allow exploratory seed lists; write exploratory_summary.json")
     parser.add_argument("--folds", choices=tuple(FOLDS), nargs="+", help="Explicit subset requires --non-final; final summary still requires four folds")
     args = parser.parse_args()

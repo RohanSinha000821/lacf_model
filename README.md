@@ -26,6 +26,41 @@ train/dev caching runs separately from training.
 Do not start F2–F4 until `outputs/speechfake-cache.log` ends with
 `verification: PASS` and `Cache preparation complete`.
 
+## Native P1 test-audio cache
+
+`scripts/prepare_cache.py` remains the source train/dev copier.
+`scripts/prepare_test_cache.py` adds the four native P1 held-out partitions:
+ASV2019 LA eval, CFAD clean unseen test, ASV5 Track 1 eval and SpeechFake test.
+It copies full original files and the required protocol/metadata into the same
+relative layout under `/mnt/drive/audio-deepfake-cache`; no decoding,
+resampling, cropping, feature extraction or model inference is performed.
+
+New files are SHA-256 checked before exclusive atomic publication. Existing
+files are reused only after size and SHA-256 agreement; a mismatch fails without
+overwriting. A destination lock prevents duplicate cache jobs. Work is bounded
+and stops before consuming the configured free-space reserve. Each completed
+partition must match canonical IDs and labels exactly. The source train/dev
+cache and raw files are preserved. The original train/dev copier's older
+same-size reuse policy is unchanged.
+
+From the project root after activation, a CPU-only low-priority copy is:
+
+```bash
+export PYTHONPATH=src
+CUDA_VISIBLE_DEVICES='' nice -n 15 ionice -c 3 python -u scripts/prepare_test_cache.py --datasets asv2019 cfad asv5 speechfake --workers 2 --reserve-gib 20 --state-dir outputs/test_cache_20261007
+```
+
+On 2026-10-07 this job was launched in tmux `test-cache` while the acquisition
+session `p2-data-download` was preserved. Inspect its `cache.log`, `status.json`,
+per-file hash journals and per-partition completion records under the state
+directory. **Do not evaluate a partially populated target cache.** For this
+four-partition job, require `all_complete.json` and all four partition records
+before choosing the cache as `--target-data-root` for a future authorized
+native evaluation. Existing valid fold scores must not be rerun merely because
+storage changed. These completion records establish copy/membership integrity,
+not an all-file decoding check or a measured speedup. P2 external corpora are
+outside this cache job; acquisition and scientific evaluation gates still apply.
+
 ## WavLM-WA, one fold at a time
 
 The latest WavLM batch is **96**. New runs use `outputs/wavlm_bs96/<fold>/<seed>/`
@@ -114,12 +149,33 @@ python -u scripts/evaluate_extended.py --protocol p2 --dataset mlaad_mailabs --r
 
 The local ASV2021 trial list lacks labels; its VCTK/VCC mapping is not the CM
 key. Official [DF full evaluation keys](https://github.com/asvspoof-challenge/2021/tree/main/eval-package)
-are required. MLAAD's installed README requires the referenced genuine
-M-AILABS files; unrelated datasets cannot substitute for them. These two inputs
-were not found in the inspected dataset locations. No keys/audio were downloaded
-or datasets modified. PartialSpoof reports utterance detection only. Generator-
-family novelty still needs verified cross-dataset family annotations; attack-ID
-reports do not invent that claim.
+were downloaded and checksum-verified on **2026-10-06**, then installed at
+`/mnt/salt/datasets/audio-deepfake/asvspoof2021/extracted/keys/DF/CM/trial_metadata.txt`.
+That is the reader's default location for the existing dataset root.
+
+MLAAD's installed README requires its referenced genuine M-AILABS files;
+unrelated datasets cannot substitute for them. Owner-authorized acquisition
+started in tmux session `p2-data-download` on **2026-10-06**. On **2026-10-07**,
+the owner requested recovery after an accidental interruption: completed US/UK
+English locales are reused, and German extraction resumes by verifying existing
+files against the retained archive before filling missing files. The remaining
+locales stay queued; this is not completed availability. Required locale
+archives are identified from the installed metadata's `original_file` paths,
+saved under `/mnt/salt/datasets/audio-deepfake/mailabs/raw/`, and staged before
+publication under `mailabs/extracted/<locale>/`. After reference validation,
+use `--mailabs-root /mnt/salt/datasets/audio-deepfake/mailabs/extracted`.
+Download progress and completion records remain local-only under
+`outputs/dataset_downloads/20261006_p2/`; inspect `status.json` and
+`mailabs_reference_validation.json` before claiming availability. Acquisition
+does not run P2 or establish the comparison-wide freeze.
+
+**MLAAD evaluator prerequisite:** the installed Amharic Edge-TTS metadata has
+literal transcript quotes that the current default CSV parser misinterprets,
+merging records. The acquisition helper reads only the reference-column prefix;
+`evaluation_data.py` is unchanged and still needs a metadata-parser correction
+and validation before MLAAD evaluation. PartialSpoof reports utterance detection
+only. Generator-family novelty still needs verified cross-dataset annotations;
+attack-ID reports do not invent that claim.
 
 Outputs: `outputs/<family>/<fold>/<seed>/analyses/<protocol>/<dataset>/metrics.json`
 (CFAD paths include `cfad_test_unseen` or `cfad_test_seen`), plus separately
@@ -135,10 +191,16 @@ Owner-approved queue, F1→F2→F3, seed 1234:
 bash scripts/wavlm/evaluate_folds.sh
 ```
 
-Uses batch 1, BF16, 8 workers, prefetch 2 and 1,000 bootstrap resamples, with
-**no GPU allocator limit**, as requested after the initial 8 GiB cap rejected
-a long full recording despite free physical memory. Increasing workers is not
-supported by the short source-only benchmark (under 0.4% loader waiting).
+The standard queue uses batch 1, BF16, 8 workers, prefetch 2 and 1,000 bootstrap
+resamples, with **no GPU allocator limit**, as requested after the initial 8 GiB
+cap rejected a long full recording despite free physical memory. The short
+source-only benchmark showed under 0.4% loader waiting; it did not establish a
+benefit from increasing workers.
+
+On 2026-10-07 the owner separately approved restarting the active F3 evaluation
+with **32 workers**, retaining batch 1 and prefetch 2. Its verified 466,016-row
+target prefix was preserved for recovery. This is an operational override for
+that F3 run, not a measured speedup or a change to the standard queue defaults.
 Native full-utterance input is unchanged. Each run's source-dev reload/calibration
 is verified before its target is opened. The queue stops on failure, refuses
 existing reports, and takes a family-wide evaluation lock. It records
@@ -195,10 +257,11 @@ The WavLM summary defaults to seed 1234 and requires all four completed/evaluate
 folds. It reports single-seed point estimates and an equal-weight four-fold mean;
 `sample_std` is `null`, not zero. Target-bootstrap intervals remain in each run's
 metrics report, but they do not measure variability across training seeds. A
-three-fold report is partial, not a complete four-fold result. Other models retain
-their existing three-seed plan unless explicitly changed separately.
+three-fold report is partial, not a complete four-fold result. AASIST also uses
+seed 1234 only under the owner's 2026-10-06 decision; remaining models retain
+their existing seed plans unless explicitly changed separately.
 
-## AASIST: ready for a source-only GPU pilot after WavLM
+## AASIST: fixed baseline and source-only validation
 
 The authors' full AASIST architecture (297,866 parameters) is vendored without
 changes at `src/audio_deepfake_detection/sota/aasist_arch.py`; its MIT notice is
@@ -217,12 +280,19 @@ target-during-training evaluation are omitted under our single-best-checkpoint,
 source-only selection policy. This is an official-architecture LODO adaptation,
 not a claim of identical published training or published scores.
 
-Only synthetic CPU tests have run so far. A full batch-24 forward/backward/Adam
-step passed with finite loss/gradients and no CUDA initialization. Real-data
-source-only throughput, CUDA-memory and complete-dev/reload checks remain to be
-performed after the WavLM queue releases the GPU. Start with 8 training workers,
-4 dev workers and prefetch 2; these are initial loader settings, not a benchmarked
-throughput optimum. Do not start a second GPU trainer during WavLM.
+Synthetic CPU batch-24 forward/backward/Adam checks passed with CUDA hidden.
+On 2026-10-07, the owner authorized AASIST F1 training alongside test-audio
+caching and ongoing acquisition. A real source-only GPU feasibility check
+passed three batch-24 optimizer steps and a checkpoint-reload score check on
+six source-dev examples. Fresh F1 training then started in tmux `aasist-f1`,
+seed 1234; the pilot checkpoint is not used for final training. Complete
+source-development scoring and selected-checkpoint reload validation remain
+pending; this short check is not full validation or a completed experiment.
+Use 8 training workers, 4 dev workers and prefetch 2. These are initial loader
+settings, not a benchmarked optimum. Inspect actual logs under
+`outputs/aasist/f1/1234/` and local pilot records under
+`outputs/aasist_launch_20261007/`; dated launch observations are not live status.
+Preserve other GPU users and obtain authorization for competing work.
 
 After activation and `export PYTHONPATH=src`, a single source-only fold is:
 
@@ -241,9 +311,12 @@ bash scripts/aasist/train_folds.sh 1234
 The queue refuses to launch while the existing batch-96 WavLM queue lock is held,
 prevents duplicate AASIST queues, and stops on any training/logging failure or
 missing completion marker. It never launches target testing. Launch it manually
-after WavLM; no AASIST job or automatic handoff has been started by implementation.
-Repeat the fixed recipe later for seeds 2345 and 3456. Existing checkpoints cannot
-be overwritten or resumed by this trainer.
+after WavLM. The implementation did not itself authorize a launch; the owner
+separately authorized the F1 launch recorded above. No additional folds were queued.
+**Owner decision, 2026-10-06: AASIST uses seed 1234 only across F1–F4.**
+Do not schedule seeds 2345/3456. This is a disclosed compute-budget adaptation
+to the paper's three-run reporting, not a claim of seed robustness. Existing
+checkpoints cannot be overwritten or resumed by this trainer.
 
 Only after the comparison-wide freeze is complete and the selected run has
 completed, evaluate its best checkpoint:
@@ -255,7 +328,7 @@ python -u scripts/aasist/evaluate.py --fold f1 --seed 1234 --confirm-protocol-fr
 The flag is an explicit operator acknowledgement of the research gate, not an
 automatic audit of every model's freeze record. Source calibration/checkpoint
 verification still precedes target access. Outputs and metrics use the same
-contract as WavLM under `outputs/aasist/<fold>/<seed>/`; after all twelve reports:
+contract as WavLM under `outputs/aasist/<fold>/1234/`; after all four seed-1234 reports:
 
 ```bash
 python scripts/summarize_results.py --model aasist
@@ -282,8 +355,9 @@ domain uses its own mean/std and the target uses its own **unlabeled** score
 mean/std. This branch is transductive, not strict zero-shot.
 
 The common metrics are ready for all models. WavLM-WA and AASIST now have
-training and score-export implementations. AASIST still needs its source-only
-GPU/real-data pilot. The other SOTA detectors need their model-specific code.
+training and score-export implementations. AASIST still needs
+complete source-only real-data development/reload validation; its short GPU
+feasibility check passed on 2026-10-07. Other SOTA detectors need model-specific code.
 
 Both evaluators validate every score ID and label against the canonical split
 reader. Reordered rows are accepted and sorted by ID for reproducible bootstrap
@@ -298,8 +372,9 @@ without this provenance fail; they are never silently adopted or overwritten.
 Bootstrap intervals resample target observations within each class only. Source
 thresholds, source normalization statistics, and full-target normalization
 statistics stay fixed. These intervals exclude training and calibration
-uncertainty. Final summaries require all four folds: WavLM family `wavlm_bs96`
-uses seed 1234 only; other families retain seeds 1234/2345/3456.
+uncertainty. Final summaries require all four folds: families `wavlm_bs96` and
+`aasist` use seed 1234 only; other families retain their declared seed plans.
+Single-seed summaries use `sample_std=null`, not zero.
 `--non-final --seeds ...` writes an explicitly exploratory summary instead.
 Evaluators and summary commands refuse to overwrite existing metric reports.
 
@@ -308,3 +383,22 @@ whitespace, normalizing relative paths, and canonicalizing label spelling. A
 conflicting train/dev overlap raises before deduplication; identical overlaps
 are removed from train. No canonical count expectation has been relaxed. Changes
 to the actual metadata schema or counts still require a source-only data check.
+
+## Local results report
+
+The owner-requested [WavLM F1–F3 supervisor report](docs/wavlm_f1_f3_report/README.md)
+is stored in a Git-ignored folder under `docs/`. It includes editable LaTeX,
+a PDF reading copy, complete recorded P1 metrics and scientific plots. See its
+README for provenance, regeneration commands and the LaTeX compiler limitation.
+F4 remains necessary for the complete four-fold report.
+
+A separate [concise WavLM F1–F3 results report](docs/wavlm_f1_f3_short_report/README.md) presents the same
+completed folds with simpler tables and an explicit bootstrap explanation.
+It preserves the detailed companion report; both numerical reports remain local-only.
+
+## Entry points
+
+Run the documented model and data commands under `scripts/`. The generated
+package-level greeting command has been removed; package initializers remain
+for imports. Training, evaluation, recovery and synthetic-test files are retained
+because they support the current study and future detectors.

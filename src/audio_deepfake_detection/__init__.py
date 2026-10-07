@@ -1,2 +1,1 @@
-def main() -> None:
-    print("audio-deepfake-detection!")
+"""Shared audio-deepfake data, models and evaluation utilities."""

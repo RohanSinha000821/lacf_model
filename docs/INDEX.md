@@ -38,6 +38,19 @@ Ignore rules do not delete local files and do not untrack already tracked files.
 Any deliberate release of unpublished results or supplied documents needs a
 separate owner decision and, for documents, appropriate publication rights.
 
+## Local supervisor report
+
+[WavLM F1–F3 report](wavlm_f1_f3_report/README.md) contains an editable standalone
+LaTeX document, a PDF reading copy, scientific plots and verified report data.
+The entire folder is intentionally ignored because it contains unpublished
+results. It is a descriptive report of completed native P1 folds; it does not
+change the experiment protocol or establish the final four-fold comparison.
+Its README records the PDF export method and LaTeX compilation status.
+
+A separate [concise WavLM F1–F3 results report](wavlm_f1_f3_short_report/README.md) presents the same
+completed folds with simpler tables and an explicit bootstrap explanation.
+It preserves the detailed companion report; both numerical reports remain local-only.
+
 ## Documentation maintenance
 
 Update the protocol and paper notes for material study decisions. Refresh the
