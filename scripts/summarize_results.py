@@ -122,7 +122,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize four-fold LODO results using the model's declared seed policy")
     parser.add_argument("--model", required=True)
     parser.add_argument("--root", type=Path, default=Path("outputs"))
-    parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96/aasist; three protocol seeds for other models")
+    parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96/aasist/lacf; three protocol seeds for other models")
     parser.add_argument("--non-final", action="store_true", help="Allow exploratory seed lists; write exploratory_summary.json")
     parser.add_argument("--folds", choices=tuple(FOLDS), nargs="+", help="Explicit subset requires --non-final; final summary still requires four folds")
     args = parser.parse_args()

@@ -354,12 +354,20 @@ DOCX and the classifier diagram in `Updated_Pipeline.pdf`:
 - Detection BCE-with-logits plus 0.25 WavLM spoof-group BCE plus 0.10 bona-fide
   JS consistency; the consistency contribution is zero for all-spoof microbatches.
 - Equal source-domain/class replacement sampling; AdamW 3e-4, weight decay 1e-4;
-  batch 4 × accumulation 8, constant LR, max 30 epochs, patience 5. The existing
+  configurable physical batch/accumulation, constant LR, max 30 epochs, patience 5. The existing
   macro source-dev EER rule governs selection; ties keep the earlier checkpoint.
-  LACF retains seeds 1234/2345/3456, unlike single-seed WavLM/AASIST.
+  The owner-approved initial LACF study uses **seed 1234 only across F1–F4**.
+  Only adapter/head train: **657,920 + 3,559 = 661,479** parameters.
+
+The later Part 1 owner decision selects **BF16 mixed precision**, superseding
+the earlier FP32 choice. Parameters and AdamW state remain FP32. Encoder/backend
+normalization, masked pooling, embedding normalization, anchor probabilities,
+logarithms, JS divergence, entropy and losses explicitly compute in FP32.
+Source development uses the same precision policy. Native CUDA BF16 support is
+required; no precision fallback, gradient scaler or automatic LR scaling.
 
 After flagging unspecified processor/precision details, the owner delegated
-those choices on 2026-10-08. Use standard checkpoint processors and FP32:
+those choices on 2026-10-08. Retain standard checkpoint processors:
 WavLM Base+ does **not** normalize waveform amplitudes and right-zero-pads with
 a validity mask; CLAP repeat-pads short signals to its 10 s feature window.
 CLAP receives only the already-selected segment, so no second random crop is
@@ -387,6 +395,41 @@ component/processor configuration, hashes, best/last checkpoints and a log.
 The selected checkpoint is source-dev reloaded before the completion marker.
 An existing run directory, including partial work, is never overwritten.
 
+Configure `--batch-size`, `--gradient-accumulation-steps`, `--num-workers`,
+`--eval-workers` and `--prefetch-factor`. Defaults remain physical batch 4,
+accumulation 8 and zero workers until a source-only pilot selects feasible
+settings. Effective batches 96/128 are candidate examples, not fixed recipes.
+Learning rate remains 0.0003 for every batch setting. Record/freeze the actual
+physical and effective batch across folds; microbatch size also affects the
+bona-fide-only JS averaging. No training resume is implemented.
+
+After an authorized source-only GPU pilot passes and the selected settings are
+frozen, queue fresh F1→F2→F3→F4 with the same training arguments. Validate the
+batch and loader settings on the actual hardware using full 10 s dual-view
+inputs, real source batches and complete source-dev scoring/checkpoint reload.
+These hardware checks remain pending; synthetic CPU tests do not select a final
+batch or worker count.
+
+```bash
+# Set these from the validated Part 2 pilot; no candidate is assumed here.
+: "${LACF_BATCH_SIZE:?set the validated physical batch}"
+: "${LACF_ACCUMULATION_STEPS:?set the validated accumulation}"
+: "${LACF_TRAIN_WORKERS:?set the validated training workers}"
+: "${LACF_DEV_WORKERS:?set the validated development workers}"
+: "${LACF_PREFETCH_FACTOR:?set the validated prefetch}"
+bash scripts/lacf/train_folds.sh --seed 1234 \
+  --batch-size "$LACF_BATCH_SIZE" --gradient-accumulation-steps "$LACF_ACCUMULATION_STEPS" \
+  --num-workers "$LACF_TRAIN_WORKERS" --eval-workers "$LACF_DEV_WORKERS" \
+  --prefetch-factor "$LACF_PREFETCH_FACTOR" --confirm-cache-verified
+```
+
+The launcher stops on any failure and advances only after completion/checkpoint
+identity, hash, recipe and recorded source-reload EER checks pass. Existing folds
+are preserved, never skipped/resumed. It holds a LACF queue lock; GPU availability
+and other active users must still be checked before separately authorizing a run.
+Single-seed summaries use point estimates and no across-seed SD (`null`); target
+bootstrap intervals remain conditional on the selected model.
+
 `ComponentConfig` explicitly controls prescribed relation groups and applicable
 semantic/consistency losses. Dimensions and unused frozen branches follow that
 configuration. A fusion module can be explicitly supplied with a declared
@@ -398,7 +441,7 @@ unchanged; native LACF score export remains later work after source validation.
 Synthetic CPU checks only:
 
 ```bash
-CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q tests/test_lacf.py
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q -p no:cacheprovider tests/test_lacf.py tests/test_lacf_queue.py tests/test_evaluation_pipeline.py
 ```
 
 These tests establish component/loop correctness, not pretrained/GPU feasibility,
@@ -442,8 +485,9 @@ without this provenance fail; they are never silently adopted or overwritten.
 Bootstrap intervals resample target observations within each class only. Source
 thresholds, source normalization statistics, and full-target normalization
 statistics stay fixed. These intervals exclude training and calibration
-uncertainty. Final summaries require all four folds: families `wavlm_bs96` and
-`aasist` use seed 1234 only; other families retain their declared seed plans.
+uncertainty. Final summaries require all four folds: families `wavlm_bs96`,
+`aasist` and initial `lacf` use seed 1234 only; other families retain their
+declared seed plans.
 Single-seed summaries use `sample_std=null`, not zero.
 `--non-final --seeds ...` writes an explicitly exploratory summary instead.
 Evaluators and summary commands refuse to overwrite existing metric reports.

@@ -65,7 +65,7 @@ File: [protocol.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake
 | F3 | ASVspoof2019, CFAD, SpeechFake | ASVspoof5 / eval |
 | F4 | ASVspoof5, CFAD, SpeechFake | ASVspoof2019 / eval |
 
-Shared labels are `0 = bona fide` and `1 = spoof`. Owner decisions on 2026-10-05 (WavLM) and 2026-10-06 (AASIST) set families `wavlm_bs96` and `aasist` to seed `(1234,)` only; remaining models retain their declared plans. `final_seeds_for(model)` returns the applicable summary seed policy.
+Shared labels are `0 = bona fide` and `1 = spoof`. Owner decisions set families `wavlm_bs96`, `aasist` and initial `lacf` to seed `(1234,)` only; remaining models retain their declared plans. `final_seeds_for(model)` returns the applicable summary seed policy.
 
 | Function | Input | Output / responsibility |
 |---|---|---|
@@ -257,7 +257,7 @@ File: [summarize_results.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/s
 | `summarize()` | Output root, model family, seeds, optional non-final flag | Per-fold mean/sample standard deviation and equal-weight mean across four folds; validates report identities and required uncertainty metadata. |
 | `main()` | CLI arguments | Writes `summary.json`, or `exploratory_summary.json` in non-final mode; refuses overwrites. |
 
-Final mode requires all four folds. Families `wavlm_bs96` and `aasist` default to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
+Final mode requires all four folds. Families `wavlm_bs96`, `aasist` and initial `lacf` default to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
 
 The batch-96 family is separate from historical batch-64 WavLM runs. A completed batch-64 F1 must not silently fill the batch-96 family's F1 slot; a consistent final batch-96 table requires its own F1 run. The F2→F3→F4 queue alone does not provide F1, and an interrupted F4 cannot count as a completed fold. A three-fold report remains partial.
 
@@ -463,15 +463,23 @@ scripts/lacf/train.py
 | `LACF` | Frozen encoders remain eval/no-grad; only adapter/head train by default. Converts sample masks to WavLM feature-frame masks, then masked mean pools. Returns views/features and one spoof logit. |
 | `RelationFeatures` / `relation_classifier()` | Ordered probability/disagreement/agreement/JS/entropy concatenation and dimension-derived 64→16→1 head. Explicit replacement fusion declares its dimension and configuration. |
 | `LACFLoss` | Unweighted detection BCE, spoof-group semantic BCE and bona-fide-only JS; undefined/disabled auxiliary losses are omitted explicitly, and an all-spoof batch has zero consistency contribution. |
-| `lacf/training.py`: `train_epoch()` | FP32, actual-microbatch-count accumulation, finite-loss/gradient checks; loop consumes the model's configured objective without ablation-specific branching. |
+| `lacf/precision.py` | Explicit FP32 LayerNorm/GroupNorm/BatchNorm boundaries preserve encoder state names and values. A CLAP projection output hook casts before its internal L2 normalization. |
+| `lacf/training.py`: `train_epoch()` | BF16 autocast with FP32 objective, actual-microbatch-count accumulation and finite-loss/gradient checks; loop consumes the configured objective without ablation-specific branching. |
 | `source_eer()` / `make_optimizer()` | Shared EER on source scores / AdamW on enabled trainable parameters only. |
 | `scripts/lacf/train.py` | Guards existing outputs/cache acknowledgment/CUDA; records components, processor policy, provenance, seed plan and recipe. Strict macro source-EER improvement, patience five, selected-checkpoint reload before completion. |
+| `scripts/lacf/train_folds.sh` / `verify_fold_completion()` | Fresh F1→F2→F3→F4 at seed 1234; shared completion/hash checks plus LACF recipe and source-reload validation. Any failure stops the queue. No skip/resume. |
 | `tests/test_lacf.py` | Synthetic audio, fake encoders and a random tiny WavLM configuration. Tests equations, actual feature-mask conversion, freezing, configuration, accumulation, target isolation and preservation; never loads downloaded weights or real data. |
 
-The main model uses 10 s crops, batch 4×8, AdamW 3e-4/weight decay 1e-4,
-30 epochs/patience 5 and the unchanged three-seed plan. Configurations record
-the later protocol's centered dev/macro EER/batch choices separately from plan
-architecture and the owner-delegated FP32/checkpoint-processor choices.
+The owner-approved initial study uses seed 1234 only, BF16 mixed precision and
+661,479 trainable adapter/head parameters. Normalization, masked pooling,
+anchor probabilities, logarithms, divergences, entropies and losses stay FP32.
+Parameters and optimizer state stay FP32; BF16 needs no gradient scaler.
+Both training and source development use the same precision policy. Physical
+batch, accumulation, workers and prefetch are configurable; defaults remain
+4×8 until source-only feasibility chooses the final setting. AdamW stays
+3e-4/weight decay 1e-4, constant LR, 30 epochs/patience 5 with no LR scaling.
+No training resume is implemented. Synthetic CPU BF16 checks do not establish
+actual checkpoint/CUDA integration, memory feasibility or source recipe freeze.
 No FT4, ablation execution, target scoring or new threshold/CI logic is added.
 After separately authorized source/GPU validation, a native LACF exporter still
 needs the common completed-checkpoint, score-manifest and source-first gates.

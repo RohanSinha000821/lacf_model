@@ -187,9 +187,12 @@ def test_seed_exception_does_not_relax_other_model_final_summaries(single_seed_w
     from audio_deepfake_detection.protocol import final_seeds_for
 
     assert final_seeds_for("aasist") == (1234,)
-    assert final_seeds_for("lacf") == FINAL_SEEDS
+    assert final_seeds_for("lacf") == (1234,)
+    assert final_seeds_for("ssl_gating") == FINAL_SEEDS
     with pytest.raises(ValueError, match="exactly seeds"):
-        summarize(single_seed_wavlm_reports, "lacf", (1234,))
+        summarize(single_seed_wavlm_reports, "ssl_gating", (1234,))
+    with pytest.raises(ValueError, match="exactly seeds"):
+        summarize(single_seed_wavlm_reports, "lacf", FINAL_SEEDS)
     with pytest.raises(ValueError, match="exactly seeds"):
         summarize(single_seed_wavlm_reports, "aasist", FINAL_SEEDS)
     with pytest.raises(ValueError, match="exactly seeds"):
@@ -399,19 +402,20 @@ def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch
         assert "speechfake" not in visited
 
 
-def test_aasist_single_seed_final_summary_and_cli(single_seed_wavlm_reports, monkeypatch):
+@pytest.mark.parametrize("family", ["aasist", "lacf"])
+def test_single_seed_final_summary_and_cli(single_seed_wavlm_reports, monkeypatch, family):
     from scripts import summarize_results
 
     root = single_seed_wavlm_reports
     for fold in FOLDS:
         report = json.loads((root / "wavlm_bs96" / fold / "1234/metrics.json").read_text())
-        report["model"] = "aasist"
-        directory = root / "aasist" / fold / "1234"
+        report["model"] = family
+        directory = root / family / fold / "1234"
         directory.mkdir(parents=True)
         (directory / "metrics.json").write_text(json.dumps(report))
-    monkeypatch.setattr(sys, "argv", ["summarize_results.py", "--model", "aasist", "--root", str(root)])
+    monkeypatch.setattr(sys, "argv", ["summarize_results.py", "--model", family, "--root", str(root)])
     summarize_results.main()
-    summary = json.loads((root / "aasist/summary.json").read_text())
+    summary = json.loads((root / family / "summary.json").read_text())
     assert summary["seeds"] == [1234] and summary["training_seed_count"] == 1
     assert summary["publication_summary"] is True and summary["four_fold_complete"] is True
     assert summary["seed_policy"] == "single_seed_compute_budget"
@@ -419,6 +423,6 @@ def test_aasist_single_seed_final_summary_and_cli(single_seed_wavlm_reports, mon
     assert all(metric["sample_std"] is None for fold in summary["per_fold"].values() for metric in fold.values())
     with pytest.raises(FileExistsError):
         summarize_results.main()
-    (root / "aasist/f4/1234/metrics.json").unlink()  # Disposable synthetic fixture only.
+    (root / family / "f4/1234/metrics.json").unlink()  # Disposable synthetic fixture only.
     with pytest.raises(FileNotFoundError):
-        summarize(root, "aasist")
+        summarize(root, family)

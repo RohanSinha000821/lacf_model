@@ -33,7 +33,7 @@ final comparison. See the latest protocol for the queue and target-freeze gate.
 | LHCC | `LHCC.pdf`, Zhang et al., Information Fusion 134 (2026) 104358: low/high-level cross-layer consistency from XLS-R features through AFM and DCM. | Section 4.4: 16 kHz mono, exactly 64,600 samples through truncate/repeat, XLS-R 300M, batch 8, Adam LR `1e-6`, weight decay `1e-4`, maximum 10 epochs, early-stop patience 2, RawBoost. Weighted BCE is stated without numeric class weights. | Paper defines bona fide=1/spoof=0 and spoof score `1 - p_bona_fide`; convert carefully to project convention. It appears to call XLS-R frozen in one place while its algorithm describes joint end-to-end optimization; determine actual intended backbone training before implementation. Earlier project summary incorrectly treated batch/LR/epochs as unreported; use the paper's explicit values. |
 | AASIST | `AASIST.pdf`, Jung et al., ICASSP 2022: integrated spectro-temporal graph attention on raw waveform. | 16 kHz, 64,600-sample input, Adam LR `1e-4`, cosine schedule; paper averages three seeds. [Author config](https://github.com/clovaai/aasist/blob/main/config/AASIST.conf) specifies batch 24 and 100 epochs; the released training implementation supplies weight decay `1e-4` and cosine minimum `5e-6`. | Its released config can evaluate a held-out set whenever development improves. The LODO implementation must not use target results for selection. Map original label order and class weights to project bona-fide=0/spoof=1 convention. |
 
-Publication policy: all models share source/target folds, target isolation, score direction, selection criterion and evaluator. Seeds follow the owner's declared single-seed compute-budget exceptions for WavLM and AASIST below; disclose unequal replication. Preserve model-specific input and optimization recipes, since equal batch sizes would not mean equal compute or equal methodological fidelity. If batch 128 is explored for AASIST or SAM-AASIST, give it a separate sensitivity result selected solely from source development data; do not silently substitute it for the paper-informed primary configuration. Report parameter count, memory, wall-clock time and optimizer updates so efficiency differences are visible. Do not include an interrupted WavLM pilot in the final comparison table.
+Publication policy: all models share source/target folds, target isolation, score direction, selection criterion and evaluator. The owner's single-seed compute-budget exceptions use seed 1234 only for families `wavlm_bs96`, `aasist` and initial `lacf`; disclose unequal replication. Preserve model-specific input and optimization recipes, since equal batch sizes would not mean equal compute or equal methodological fidelity. If batch 128 is explored for AASIST or SAM-AASIST, give it a separate sensitivity result selected solely from source development data; do not silently substitute it for the paper-informed primary configuration. Report parameter count, memory, wall-clock time and optimizer updates so efficiency differences are visible. Do not include an interrupted WavLM pilot in the final comparison table.
 
 ## P2–P4 reference findings and implementation (2026-10-05)
 
@@ -108,6 +108,9 @@ results informed these actions or adaptations.
 
 ## LACF main-plan fidelity (2026-10-08)
 
+The following initial precision/seed/batch choices are historical; the later
+owner-approved Part 1 decisions below supersede them.
+
 Read the actual owner-designated `LACF_Audio_Deepfake_Implementation_PlanV2.docx`
 completely, with table cells and mathematical objects, alongside the original
 `Updated_Pipeline.pdf` and `New_plan_LACF_Model.pdf` supplements. LACF is kept
@@ -138,3 +141,27 @@ updates. Auxiliary-loss switches omit inapplicable terms explicitly and feature
 configuration determines head dimensions/unused branches. FT4 and ablation
 execution remain deferred. Full source/GPU validation, final freeze and native
 LACF score export remain required before comparison results.
+
+## LACF Part 1 review and owner adaptations (2026-10-08)
+
+The main DOCX (including tables and equations), checksum-verified original
+pipeline/model supplements and current implementation were reviewed again.
+Exact architecture/prompts/losses/input interval remain unchanged. The owner
+now selects seed 1234 only, BF16 mixed precision with explicit FP32 sensitive
+calculations, and configurable physical batch/accumulation/loaders. These are
+owner adaptations, superseding the prior FP32/three-seed/fixed-batch defaults;
+no target result informed them. Effective 96/128 remain examples until validated.
+
+Parameter accounting is 657,920 adapter + 3,559 head = 661,479 trainable.
+Encoder normalization and CLAP's internal projected-feature normalization are
+kept FP32 as well as backend normalization/probabilities/JS/entropy/losses.
+Encoders remain frozen and eval. Source-dev BF16 matches training; selected
+checkpoint reload is validated before fold completion. AdamW 3e-4/1e-4 and
+constant LR do not scale with batch. The sequential launcher stops on failures
+or completion/hash/source-reload mismatches; no training resume is added.
+
+The review/tests use synthetic CPU fixtures with CUDA hidden. Actual cached
+checkpoints, real source audio, CUDA BF16, memory and throughput remain
+unvalidated. No GPU test, training, download, target evaluation or publication
+was performed. Single-seed summaries have no across-seed SD; the shared
+conditional target-bootstrap contract is unchanged.

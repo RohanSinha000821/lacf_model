@@ -26,8 +26,8 @@ FINAL_SEEDS = (1234, 2345, 3456)
 
 
 def final_seeds_for(model: str) -> tuple[int, ...]:
-    """Owner single-seed decisions: WavLM 2026-10-05; AASIST 2026-10-06."""
-    return (1234,) if model in ("wavlm_bs96", "aasist") else FINAL_SEEDS
+    """Owner single-seed decisions: WavLM, AASIST and initial LACF study."""
+    return (1234,) if model in ("wavlm_bs96", "aasist", "lacf") else FINAL_SEEDS
 
 
 def validate_run_name(value: str) -> str:

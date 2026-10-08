@@ -294,7 +294,8 @@ def test_optimizer_excludes_frozen_parameters_and_uses_prescribed_adamw():
     assert {id(p) for p in group["params"]} == {id(p) for p in net.parameters() if p.requires_grad}
 
 
-def test_actual_tiny_wavlm_converts_sample_masks_to_feature_frame_masks():
+@pytest.mark.parametrize("bf16", [False, True])
+def test_actual_tiny_wavlm_converts_sample_masks_to_feature_frame_masks(bf16):
     # Random tiny encoder configuration: no pretrained weight load or GPU call.
     encoder = WavLMModel(WavLMConfig(hidden_size=768, num_hidden_layers=1,
         intermediate_size=16, num_attention_heads=12, conv_dim=(4,), conv_stride=(2,),
@@ -304,10 +305,10 @@ def test_actual_tiny_wavlm_converts_sample_masks_to_feature_frame_masks():
     inputs = batch()
     inputs["wavlm"] = {"input_values": torch.randn(2, 64),
                        "attention_mask": torch.arange(64)[None, :] < torch.tensor([[40], [64]])}
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16, enabled=bf16):
         hidden = encoder(**inputs["wavlm"], return_dict=True).last_hidden_state
         frame_mask = encoder._get_feature_vector_attention_mask(hidden.shape[1], inputs["wavlm"]["attention_mask"])
-        expected = torch.stack([hidden[i, frame_mask[i]].mean(0) for i in range(2)])
+        expected = torch.stack([hidden[i, frame_mask[i]].float().mean(0) for i in range(2)])
         output = net(inputs)
     assert frame_mask.shape != inputs["wavlm"]["attention_mask"].shape
     assert frame_mask.sum(1).tolist() == [19, 31]
@@ -377,14 +378,18 @@ def test_training_cuda_guard_precedes_local_weights_or_data(tmp_path, monkeypatc
     assert not (tmp_path / "outputs").exists()
 
 
-def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reload_mismatch", [False, True])
+def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tmp_path, monkeypatch, reload_mismatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f3", "--confirm-cache-verified"])
+    monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f3", "--confirm-cache-verified",
+        "--batch-size", "12", "--gradient-accumulation-steps", "8", "--num-workers", "3",
+        "--eval-workers", "2", "--prefetch-factor", "4"])
     monkeypatch.setattr(train, "MAX_EPOCHS", 4)
     monkeypatch.setattr(train, "PATIENCE", 1)
     original_device = torch.device
     monkeypatch.setattr(train.torch, "device", lambda *args, **kwargs: original_device("cpu"))
     monkeypatch.setattr(train.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(train.torch.cuda, "is_bf16_supported", lambda **kwargs: True)
     monkeypatch.setattr(train.torch.cuda, "manual_seed_all", lambda seed: None)
     monkeypatch.setattr(train.torch.cuda, "get_device_name", lambda device: "synthetic CPU fixture")
     monkeypatch.setattr(train, "code_provenance", lambda root: {"source_sha256": {"fixture": "fixture"}})
@@ -399,7 +404,8 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
         return [(f"{domain}-{i}", i % 2) for i in range({"asv2019": 2, "cfad": 4, "speechfake": 8}[domain])]
 
     monkeypatch.setattr(train, "read_dataset", reader)
-    monkeypatch.setattr(train, "make_loader", lambda *args, **kwargs: [batch()])
+    loader_settings = []
+    monkeypatch.setattr(train, "make_loader", lambda *args, **kwargs: (loader_settings.append(kwargs), [batch()])[1])
     trained = []
 
     def epoch(*args, **kwargs):
@@ -409,28 +415,110 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
 
     monkeypatch.setattr(train, "train_epoch", epoch)
     # Equal macro on epoch 2: keep epoch 1, then validate that selected checkpoint again.
-    eers = iter([.1, .2, .3] * 3)
+    eers = iter([.1, .2, .3] * 2 + ([.1, .2, .4] if reload_mismatch else [.1, .2, .3]))
     monkeypatch.setattr(train, "source_eer", lambda *args: next(eers))
+    directory = tmp_path / "outputs/lacf/f3/1234"
+    if reload_mismatch:
+        with pytest.raises(ValueError, match="Source-dev macro EER"):
+            train.main()
+        assert (directory / "best.pt").exists() and not (directory / "training_complete.json").exists()
+        return
     train.main()
     assert opened == [(domain, split) for domain in FOLDS["f3"]["sources"] for split in ("train", "dev")]
     assert len(trained) == 2
-    directory = tmp_path / "outputs/lacf/f3/1234"
     completion, digest = verify_completed_run(directory, "f3", 1234)
     assert completion["best_epoch"] == 1 and completion["final_epoch"] == 2
     assert completion["best_macro_source_dev_eer"] == pytest.approx(.2)
     assert completion["best_checkpoint_sha256"] == digest
     config = json.loads((directory / "config.json").read_text())
     assert config["selected_epoch"] == 1 and config["selected_checkpoint_sha256"] == digest
-    assert config["final_seed_plan"] == [1234, 2345, 3456]
+    assert config["final_seed_plan"] == [1234]
     assert config["components"]["fusion"]["output_dim"] == 35
-    assert config["precision"] == "float32" and config["effective_batch_size"] == 32
+    assert config["precision"] == "bfloat16_mixed" and config["effective_batch_size"] == 96
+    assert config["sensitive_dtype"] == "float32" and config["trainable_parameters"] == 661_479
+    assert config["learning_rate"] == .0003 and not config["automatic_learning_rate_scaling"]
+    assert loader_settings[-1]["batch_size"] == 12 and loader_settings[-1]["num_workers"] == 3
+    assert all(settings["prefetch_factor"] == 4 for settings in loader_settings)
+    assert training.verify_fold_completion(directory, "f3")["best_epoch"] == 1
+    (directory / "best.pt").write_bytes(b"tampered synthetic checkpoint")
+    with pytest.raises(ValueError, match="verification failed"):
+        training.verify_fold_completion(directory, "f3")
     assert [config["dataset_counts"][domain]["dev"] for domain in FOLDS["f3"]["sources"]] == [2, 4, 8]
     assert not list(directory.glob("*scores.csv")) and not (directory / "metrics.json").exists()
     assert (directory / "training.log").is_file()
 
 
-@pytest.mark.parametrize("arguments", [["--seed", "99"], ["--num-workers", "-1"], ["--prefetch-factor", "0"]])
+@pytest.mark.parametrize("arguments", [["--seed", "99"], ["--seed", "2345"], ["--seed", "3456"],
+    ["--num-workers", "-1"], ["--prefetch-factor", "0"], ["--batch-size", "0"],
+    ["--gradient-accumulation-steps", "0"], ["--resume"]])
 def test_trainer_rejects_undeclared_seeds_or_invalid_loaders(monkeypatch, arguments):
     monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f1", *arguments])
     with pytest.raises(SystemExit):
         train.parse_args()
+
+
+def test_primary_parameter_count_and_cpu_bf16_fp32_boundaries():
+    net = detector().train()
+    assert sum(p.numel() for p in net.adapter.parameters()) == 657_920
+    assert sum(p.numel() for p in net.classifier.parameters()) == 3_559
+    assert sum(p.numel() for p in net.parameters() if p.requires_grad) == 661_479
+    observed = []
+    for module in net.modules():
+        if isinstance(module, nn.LayerNorm):
+            module.register_forward_hook(lambda module, args, output: observed.append(output.dtype))
+    frozen = {name: value.clone() for name, value in net.state_dict().items()
+              if name.startswith(("wavlm.", "clap.", "prototypes"))}
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        output = net(batch())
+        losses = net.objective(output, batch()["labels"])
+    assert output["logit"].dtype == torch.bfloat16
+    assert all(output[name].dtype == torch.float32 for name in ("z_w", "v_w", "v_c", "p_w", "p_c", "features"))
+    assert observed and all(dtype == torch.float32 for dtype in observed)
+    assert all(value.dtype == torch.float32 and torch.isfinite(value) for value in losses.values())
+    losses["total"].backward()
+    assert all(p.grad is None for enc in (net.wavlm, net.clap) for p in enc.parameters())
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in net.parameters() if p.requires_grad)
+    training.make_optimizer(net).step()
+    for name, value in frozen.items():
+        torch.testing.assert_close(net.state_dict()[name], value, rtol=0, atol=0)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        p, q = torch.eye(2).bfloat16(), torch.flip(torch.eye(2), [1]).bfloat16()
+        assert model.entropy(p).dtype == torch.float32
+        torch.testing.assert_close(model.js_divergence(p, q), torch.full((2,), np.log(2)))
+        assert net.objective(output, torch.ones(2))["bonafide"].item() == 0
+
+
+def test_encoder_norms_and_clap_internal_embedding_normalization_are_fp32():
+    from types import MethodType
+    from audio_deepfake_detection.lacf.precision import keep_normalization_fp32
+
+    norms = nn.Sequential(nn.LayerNorm(4), nn.GroupNorm(2, 4), nn.BatchNorm2d(4)).eval()
+    original = {name: value.clone() for name, value in norms.state_dict().items()}
+    keep_normalization_fp32(norms)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        for norm, inputs in zip(norms, (torch.randn(2, 4), torch.randn(2, 4, 3), torch.randn(2, 4, 3, 3))):
+            assert norm(inputs.bfloat16()).dtype == torch.float32
+    for name, value in original.items():
+        torch.testing.assert_close(norms.state_dict()[name], value, rtol=0, atol=0)
+    clap = FakeClap()
+    clap.audio_model = lambda **kwargs: SimpleNamespace(pooler_output=kwargs["input_features"])
+    clap.audio_projection = nn.Linear(2, 512)
+    clap.get_audio_features = MethodType(pretrained.ClapModel.get_audio_features, clap)
+    net = model.LACF(FakeWavLM(), clap, torch.randn(8, 512)).eval()
+    projection_dtypes = []
+    clap.audio_projection.register_forward_pre_hook(lambda module, args: projection_dtypes.append(args[0].dtype))
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        features = clap.get_audio_features(**batch()["clap"])
+    assert features.dtype == torch.float32 and projection_dtypes
+    torch.testing.assert_close(features.norm(dim=-1), torch.ones(2))
+
+
+def test_native_bf16_requirement_fails_before_weights_or_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f1", "--confirm-cache-verified"])
+    monkeypatch.setattr(train.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(train.torch.cuda, "is_bf16_supported", lambda **kwargs: False)
+    monkeypatch.setattr(train, "load_local_model", lambda: pytest.fail("must not load weights"))
+    with pytest.raises(RuntimeError, match="BF16"):
+        train.main()
+    assert not (tmp_path / "outputs").exists()

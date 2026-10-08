@@ -11,6 +11,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from audio_deepfake_detection.lacf.precision import (
+    FP32LayerNorm, fp32_projection_output, keep_normalization_fp32,
+)
+
 WAVLM_NAME = "microsoft/wavlm-base-plus"
 CLAP_NAME = "laion/clap-htsat-unfused"
 CONCEPTS = (
@@ -21,6 +25,7 @@ CONCEPTS = (
 TEMPLATES = ("{concept}", "a recording of {concept}", "this audio contains {concept}")
 FEATURE_DIMS = {"p_w": 8, "p_c": 8, "difference": 8, "agreement": 8,
                 "js": 1, "entropy_w": 1, "entropy_c": 1}
+PRIMARY_TRAINABLE_PARAMETERS = 661_479
 
 
 @dataclass(frozen=True)
@@ -51,9 +56,16 @@ class ComponentConfig:
 
 
 def unit_vectors(values):
-    if values.ndim < 2 or not torch.isfinite(values).all() or (values.norm(dim=-1) == 0).any():
-        raise ValueError("Embedding vectors must be finite and nonzero")
-    return F.normalize(values, dim=-1)
+    with torch.autocast(values.device.type, enabled=False):
+        values = values.float()
+        if values.ndim < 2 or not torch.isfinite(values).all() or (values.norm(dim=-1) == 0).any():
+            raise ValueError("Embedding vectors must be finite and nonzero")
+        return F.normalize(values, dim=-1)
+
+
+def anchor_distribution(embedding, prototypes, temperature):
+    with torch.autocast(embedding.device.type, enabled=False):
+        return (embedding.float() @ prototypes.float().T / temperature).softmax(-1)
 
 
 def text_prototypes(text_features):
@@ -65,15 +77,19 @@ def text_prototypes(text_features):
 
 def entropy(probabilities):
     # Natural logarithms, as in the supplement. Clamp only inside log to handle 0*log(0).
-    return -(probabilities * probabilities.clamp_min(torch.finfo(probabilities.dtype).tiny).log()).sum(-1)
+    with torch.autocast(probabilities.device.type, enabled=False):
+        probabilities = probabilities.float()
+        return -(probabilities * probabilities.clamp_min(torch.finfo(torch.float32).tiny).log()).sum(-1)
 
 
 def js_divergence(p_w, p_c):
-    midpoint = (p_w + p_c) / 2
-    tiny = torch.finfo(midpoint.dtype).tiny
-    log_midpoint = midpoint.clamp_min(tiny).log()
-    return 0.5 * ((p_w * (p_w.clamp_min(tiny).log() - log_midpoint)).sum(-1)
-                  + (p_c * (p_c.clamp_min(tiny).log() - log_midpoint)).sum(-1))
+    with torch.autocast(p_w.device.type, enabled=False):
+        p_w, p_c = p_w.float(), p_c.float()
+        midpoint = (p_w + p_c) / 2
+        tiny = torch.finfo(torch.float32).tiny
+        log_midpoint = midpoint.clamp_min(tiny).log()
+        return 0.5 * ((p_w * (p_w.clamp_min(tiny).log() - log_midpoint)).sum(-1)
+                      + (p_c * (p_c.clamp_min(tiny).log() - log_midpoint)).sum(-1))
 
 
 class RelationFeatures(nn.Module):
@@ -87,6 +103,8 @@ class RelationFeatures(nn.Module):
 
     def forward(self, views):
         p_w, p_c = views.get("p_w"), views.get("p_c")
+        p_w = p_w.float() if p_w is not None else None
+        p_c = p_c.float() if p_c is not None else None
         blocks = {}
         if p_w is not None:
             blocks.update(p_w=p_w, entropy_w=entropy(p_w).unsqueeze(-1))
@@ -106,14 +124,18 @@ class LACFLoss(nn.Module):
         self.config = config
 
     def forward(self, output, labels):
-        labels = labels.to(output["logit"].dtype)
+        with torch.autocast(output["logit"].device.type, enabled=False):
+            return self.fp32_loss(output, labels)
+
+    def fp32_loss(self, output, labels):
+        logit, labels = output["logit"].float(), labels.float()
         if labels.shape != output["logit"].shape or not ((labels == 0) | (labels == 1)).all():
             raise ValueError("Expected one binary label per spoof logit")
-        detection = F.binary_cross_entropy_with_logits(output["logit"], labels)
+        detection = F.binary_cross_entropy_with_logits(logit, labels)
         zero = detection * 0
         semantic, bonafide = zero, zero
         if self.config.semantic_loss:
-            semantic = F.binary_cross_entropy(output["p_w"][:, 3:].sum(-1).clamp(0, 1), labels)
+            semantic = F.binary_cross_entropy(output["p_w"].float()[:, 3:].sum(-1).clamp(0, 1), labels)
         if self.config.bonafide_loss:
             divergence = js_divergence(output["p_w"], output["p_c"])
             bonafide = divergence[labels == 0].mean() if (labels == 0).any() else zero
@@ -122,8 +144,8 @@ class LACFLoss(nn.Module):
 
 
 def relation_classifier(input_dim):
-    return nn.Sequential(nn.LayerNorm(input_dim), nn.Linear(input_dim, 64), nn.GELU(), nn.Dropout(0.2),
-                         nn.LayerNorm(64), nn.Linear(64, 16), nn.GELU(), nn.Dropout(0.2), nn.Linear(16, 1))
+    return nn.Sequential(FP32LayerNorm(input_dim), nn.Linear(input_dim, 64), nn.GELU(), nn.Dropout(0.2),
+                         FP32LayerNorm(64), nn.Linear(64, 16), nn.GELU(), nn.Dropout(0.2), nn.Linear(16, 1))
 
 
 class LACF(nn.Module):
@@ -146,7 +168,7 @@ class LACF(nn.Module):
         if prototypes.shape != (8, 512):
             raise ValueError("Expected eight 512-dimensional fixed prototypes")
         self.register_buffer("prototypes", unit_vectors(prototypes.detach()).clone())
-        self.adapter = (nn.Sequential(nn.LayerNorm(768), nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.2),
+        self.adapter = (nn.Sequential(FP32LayerNorm(768), nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.2),
                                       nn.Linear(512, 512)) if config.needs_wavlm else None)
         self.fusion = fusion if fusion is not None else RelationFeatures(config.feature_groups)
         if not isinstance(self.fusion.output_dim, int) or self.fusion.output_dim < 1:
@@ -155,8 +177,11 @@ class LACF(nn.Module):
         self.objective = LACFLoss(config)
         for encoder in (self.wavlm, self.clap):
             if encoder is not None:
+                keep_normalization_fp32(encoder)
                 encoder.requires_grad_(False)
                 encoder.eval()
+        if self.clap is not None and hasattr(self.clap, "audio_projection"):
+            self.clap.audio_projection.register_forward_hook(fp32_projection_output)
 
     def train(self, mode=True):
         super().train(mode)
@@ -174,7 +199,8 @@ class LACF(nn.Module):
                 "prototype_policy": "normalize_each_template_then_mean_then_normalize",
                 "adapter": [768, 512, 512] if self.adapter is not None else None,
                 "dropout": 0.2, "classifier_normalization": "pre_linear_first_two_layers",
-                "classifier": [self.fusion.output_dim, 64, 16, 1]}
+                "classifier": [self.fusion.output_dim, 64, 16, 1],
+                "sensitive_calculations_dtype": "float32"}
 
     def forward(self, batch):
         views = {}
@@ -187,14 +213,15 @@ class LACF(nn.Module):
                 frame_mask = self.wavlm._get_feature_vector_attention_mask(hidden.shape[1], mask)
                 if not frame_mask.any(dim=1).all():
                     raise ValueError("Audio is too short for a valid WavLM feature frame")
-                pooled = (hidden * frame_mask.unsqueeze(-1)).sum(1) / frame_mask.sum(1, keepdim=True)
+                with torch.autocast(hidden.device.type, enabled=False):
+                    pooled = (hidden.float() * frame_mask.unsqueeze(-1)).sum(1) / frame_mask.sum(1, keepdim=True)
             views["z_w"] = pooled
             views["v_w"] = unit_vectors(self.adapter(pooled))
-            views["p_w"] = (views["v_w"] @ self.prototypes.T / self.config.temperature).softmax(-1)
+            views["p_w"] = anchor_distribution(views["v_w"], self.prototypes, self.config.temperature)
         if self.clap is not None:
             with torch.no_grad():
                 views["v_c"] = unit_vectors(self.clap.get_audio_features(**batch["clap"]))
-                views["p_c"] = (views["v_c"] @ self.prototypes.T / self.config.temperature).softmax(-1)
+                views["p_c"] = anchor_distribution(views["v_c"], self.prototypes, self.config.temperature)
         features = self.fusion(views)
         if features.ndim != 2 or features.shape[1] != self.fusion.output_dim:
             raise ValueError("Fusion output disagrees with its declared feature dimension")

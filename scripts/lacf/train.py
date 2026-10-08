@@ -20,9 +20,10 @@ import transformers
 
 from audio_deepfake_detection.lacf.data import LACFDataset, make_loader
 from audio_deepfake_detection.lacf.pretrained import load_local_model
+from audio_deepfake_detection.lacf.model import PRIMARY_TRAINABLE_PARAMETERS
 from audio_deepfake_detection.lacf.training import make_optimizer, source_eer, train_epoch
 from audio_deepfake_detection.protocol import (
-    FINAL_SEEDS, FOLDS, checkpoint_digest, read_dataset, verify_source_macro,
+    FOLDS, checkpoint_digest, final_seeds_for, read_dataset, verify_source_macro,
 )
 
 BATCH_SIZE, ACCUMULATION_STEPS, MAX_EPOCHS, PATIENCE = 4, 8, 30, 5
@@ -31,15 +32,18 @@ BATCH_SIZE, ACCUMULATION_STEPS, MAX_EPOCHS, PATIENCE = 4, 8, 30, 5
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fold", choices=tuple(FOLDS), required=True)
-    parser.add_argument("--seed", type=int, choices=FINAL_SEEDS, default=1234)
+    parser.add_argument("--seed", type=int, choices=final_seeds_for("lacf"), default=1234)
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=ACCUMULATION_STEPS)
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--eval-workers", type=int, default=0)
     parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--confirm-cache-verified", action="store_true")
     args = parser.parse_args()
-    if min(args.num_workers, args.eval_workers) < 0 or args.prefetch_factor < 1:
-        parser.error("Workers must be nonnegative; prefetch factor positive")
+    if (min(args.num_workers, args.eval_workers) < 0
+            or min(args.prefetch_factor, args.batch_size, args.gradient_accumulation_steps) < 1):
+        parser.error("Workers must be nonnegative; batch, accumulation and prefetch must be positive")
     return args
 
 
@@ -50,7 +54,8 @@ def save_json(path, value):
 
 
 def code_provenance(root):
-    paths = [Path(__file__), *sorted((root / "src/audio_deepfake_detection/lacf").glob("*.py")),
+    paths = [Path(__file__), root / "scripts/lacf/train_folds.sh",
+             *sorted((root / "src/audio_deepfake_detection/lacf").glob("*.py")),
              *(root / f"src/audio_deepfake_detection/{name}.py" for name in ("data", "metrics", "protocol"))]
     result = {"source_sha256": {str(path.relative_to(root)): checkpoint_digest(path) for path in paths}}
     for key, command in (("git_revision", ["git", "rev-parse", "HEAD"]),
@@ -71,6 +76,8 @@ def main():
         raise ValueError("Verified transfer/content integrity is required before training; directory presence is insufficient")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for actual LACF training; use synthetic tests for CPU checks")
+    if not torch.cuda.is_bf16_supported(including_emulation=False):
+        raise RuntimeError("Native CUDA BF16 support is required; no precision fallback")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -79,6 +86,10 @@ def main():
     torch.backends.cudnn.benchmark = False
     # Load cached encoders before creating run files. Missing weights fail closed.
     model, collator, revisions = load_local_model()
+    trainable = {name: p for name, p in model.named_parameters() if p.requires_grad}
+    if (sum(p.numel() for p in trainable.values()) != PRIMARY_TRAINABLE_PARAMETERS
+            or any(not name.startswith(("adapter.", "classifier.")) for name in trainable)):
+        raise ValueError("Primary LACF must train only the 661,479 adapter/classifier parameters")
     fold = FOLDS[args.fold]
     train_sets, dev_loaders, counts = [], {}, {}
     for domain in fold["sources"]:
@@ -90,22 +101,25 @@ def main():
             training=False, seed=args.seed, batch_size=1, num_workers=args.eval_workers,
             prefetch_factor=args.prefetch_factor)
     train_loader = make_loader(train_sets, collator, training=True, seed=args.seed,
-        batch_size=BATCH_SIZE, num_workers=args.num_workers, prefetch_factor=args.prefetch_factor)
+        batch_size=args.batch_size, num_workers=args.num_workers, prefetch_factor=args.prefetch_factor)
     device = torch.device("cuda")
     model = model.to(device)
     optimizer = make_optimizer(model)
     config = {
         "model_name": "LACF-Frozen", "run_name": "lacf", "fold": args.fold, "seed": args.seed,
-        "final_seed_plan": list(FINAL_SEEDS), "sources": list(fold["sources"]),
+        "final_seed_plan": list(final_seeds_for("lacf")), "seed_policy": "single_seed_compute_budget",
+        "sources": list(fold["sources"]),
         "target": fold["target"], "target_split": fold["target_split"], "data_root": str(args.data_root),
         "dataset_counts": counts, "components": model.configuration(), "input_policy": collator.configuration(),
-        "batch_size": BATCH_SIZE, "gradient_accumulation_steps": ACCUMULATION_STEPS,
-        "effective_batch_size": BATCH_SIZE * ACCUMULATION_STEPS, "eval_batch_size": 1,
+        "batch_size": args.batch_size, "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "effective_batch_size": args.batch_size * args.gradient_accumulation_steps, "eval_batch_size": 1,
         "num_workers": args.num_workers, "eval_workers": args.eval_workers, "prefetch_factor": args.prefetch_factor,
         "sampler": "equal_domain_equal_class_uniform_utterance_replacement", "drop_last": False,
         "optimizer": "AdamW", "learning_rate": 3e-4, "weight_decay": 1e-4,
         "optimizer_betas": [0.9, 0.999], "optimizer_eps": 1e-8, "scheduler": "constant",
-        "max_epochs": MAX_EPOCHS, "patience": PATIENCE, "precision": "float32",
+        "max_epochs": MAX_EPOCHS, "patience": PATIENCE, "precision": "bfloat16_mixed",
+        "parameter_dtype": "float32", "sensitive_dtype": "float32", "gradient_scaler": False,
+        "automatic_learning_rate_scaling": False,
         "selection": "strictly_lower_macro_source_dev_eer", "label_order": ["bona_fide", "spoof"],
         "score": "scalar_spoof_logit", "augmentation": "none",
         "accumulation_loss": "mean_of_actual_microbatch_losses_including_final_incomplete_group",
@@ -134,7 +148,8 @@ def main():
     try:
         log.info("sources=%s; target=%s remains unopened; components=%s", fold["sources"], fold["target"], config["components"])
         for epoch in range(1, MAX_EPOCHS + 1):
-            losses, steps = train_epoch(model, train_loader, optimizer, device, accumulation_steps=ACCUMULATION_STEPS)
+            losses, steps = train_epoch(model, train_loader, optimizer, device,
+                                       accumulation_steps=args.gradient_accumulation_steps)
             updates += steps
             dev_eers = {domain: source_eer(model, loader, device) for domain, loader in dev_loaders.items()}
             macro = float(np.mean(list(dev_eers.values())))
@@ -169,7 +184,8 @@ def main():
             "fold": args.fold, "seed": args.seed, "best_epoch": best_epoch, "final_epoch": epoch,
             "best_macro_source_dev_eer": best, "reloaded_dev_eers": reloaded,
             "best_checkpoint": str(run_dir / "best.pt"),
-            "best_checkpoint_sha256": digest, "optimizer_updates": updates})
+            "best_checkpoint_sha256": digest, "optimizer_updates": updates,
+            "selected_checkpoint_reloaded_and_source_verified": True})
         log.info("Training complete; selected source checkpoint reloaded; held-out target never loaded")
     except Exception:
         log.exception("Run failed; partial work preserved")

@@ -16,7 +16,7 @@
 - Check for active GPU training before GPU tests; avoid competing GPU work unless the user authorizes it. Prefer small synthetic CPU tests while a training queue is active.
 - Training and recipe selection use the fold's source train/dev splits only. The owner's 2026-10-06 decision permits independent completed WavLM batch-96 fold evaluation before the wider comparison is frozen, as recorded in `docs/EXPERIMENT_PROTOCOL.md`. Verify each run's source-only freeze; target results must not guide any model's tuning or design. Do not claim the comparison-wide freeze is complete.
 - Preserve shared label/score conventions, canonical split membership and the common evaluator contract across models. Record model-specific adaptations and source-only reasons.
-- Owner compute-budget decisions: WavLM family `wavlm_bs96` (2026-10-05) and AASIST family `aasist` (2026-10-06) use seed 1234 only. Do not schedule seeds 2345/3456 for these families. Other models retain their existing seed plan unless explicitly changed. Single-seed results have no across-seed standard deviation; target-bootstrap intervals do not measure seed variability.
+- Owner compute-budget decisions: WavLM family `wavlm_bs96` (2026-10-05), AASIST family `aasist` (2026-10-06), and the initial LACF family `lacf` (2026-10-08) use seed 1234 only across F1–F4. Do not schedule seeds 2345/3456 for these families. Other models retain their existing seed plan unless explicitly changed. Single-seed results have no across-seed standard deviation; target-bootstrap intervals do not measure seed variability.
 
 ## Implementation style
 
