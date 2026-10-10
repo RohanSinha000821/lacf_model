@@ -92,7 +92,7 @@ Target isolation applies across methods: target scores, metrics, errors, listeni
 ## Training and selection rules shared by all models
 
 - Run source-only feasibility pilots under the comparable tuning-effort policy below, then freeze each recipe before its final fold/seed runs. A pilot may establish batch feasibility and complete source-development evaluation. Record each adaptation and its source-only reason. Never revise recipes in response to any method's target results.
-- Final runs use seeds **1234, 2345, and 3456**, except the owner's declared compute-budget exceptions: **1234 only** for families `wavlm_bs96`, `aasist` and the initial `lacf` study. Disclose unequal replication when comparing models; do not treat their target-bootstrap intervals as across-seed uncertainty. Seed Python, NumPy, PyTorch, CUDA, sampler, and DataLoader workers. Record library/CUDA versions, accelerator, code revision, and complete run configuration. Deterministic algorithms are best effort; record any nondeterministic operation rather than silently changing model behavior.
+- Final runs use seeds **1234, 2345, and 3456**, except the owner's declared compute-budget exceptions: **1234 only** for families `wavlm_bs96`, `aasist` and the initial `lacf`/`lacf4s` studies. Disclose unequal replication when comparing models; do not treat their target-bootstrap intervals as across-seed uncertainty. Seed Python, NumPy, PyTorch, CUDA, sampler, and DataLoader workers. Record library/CUDA versions, accelerator, code revision, and complete run configuration. Deterministic algorithms are best effort; record any nondeterministic operation rather than silently changing model behavior.
 - One epoch makes as many replacement draws as there are source-training records in that fold. For the standard baseline sampler, choose a source domain uniformly, then an utterance uniformly within that domain; retain each domain's natural class ratio. Use the same sampler for all standard baselines unless the reproduced method requires a different one. LACF uses a declared domain-and-class-balanced sampler: choose domain uniformly, class uniformly, then utterance uniformly. Its A0–A10 ablations use this same sampler. Report the sampling difference when comparing LACF with a standard baseline.
 - Use the model-specific batch and optimizer recipe below. Batch means examples per optimizer device; effective batch is batch times gradient accumulation. For accumulation, divide each microbatch loss by the actual number of microbatches in that optimizer step. Do not silently change batch, accumulation, loss weights, learning-rate schedule, input duration, or augmentation between folds.
 - For WavLM on the 32-core H200-35C host, use 16 training workers, 4 workers per source-development loader, prefetch factor 2 per worker, pinned host memory, and persistent workers. These settings followed an early, pre-checkpoint F1 loader pilot that showed I/O wait with 8 workers. Other models start with source-only throughput pilots. Evaluation batch size is 1 for full-utterance or variable-length input. Fixed-length models may use a larger evaluation batch only after verifying that every per-utterance score matches the batch-1 result within a documented numerical tolerance. Loader throughput changes do not alter the sampler or model recipe.
@@ -111,7 +111,7 @@ Published-method starting values below were checked against the five supplied pa
 | SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, RawBoost; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
 | LHCC | exactly 64,600 samples at 16 kHz, truncated/repeated | **8 × 1** | Adam `1e-6`, weight decay `1e-4` | schedule not reported; 10; 2 | XLS-R 300M low/high-level features, AFM, DCM, weighted BCE and RawBoost. Numeric class weights are not reported. Paper uses bona fide=1/spoof=0 and `1 - p_bona_fide` as spoof score; map labels and scores explicitly. |
 | LACF-10s frozen | one common physical interval, at most 10 s; resample it separately to WavLM 16 kHz and CLAP 48 kHz | configurable; default 4 × 8, effective 32 pending source-only pilot | AdamW `3e-4` for adapter/classifier, weight decay `1e-4`; no automatic LR scaling | constant LR (owner-approved); 30; 5 | BF16 mixed precision with FP32 sensitive calculations; 661,479 trainable adapter/head parameters; seed 1234 only; `BCEWithLogits + 0.25 semantic BCE + 0.10 bona-fide JS`; freeze WavLM and CLAP; eight fixed anchors and temperature `0.07`. |
-| LACF-4s frozen | same 4 s physical interval at 16/48 kHz | 8 × 4, effective 32 (**batch assumption**) | same as LACF-10s | same as LACF-10s | same as LACF-10s; only input duration and feasible microbatch differ. |
+| LACF-4s frozen | same 4 s physical interval at 16/48 kHz | configurable, same effective batch as LACF-10s (old 8 × 4 assumption superseded) | same as LACF-10s | same as LACF-10s | same as LACF-10s; only input duration and feasible microbatch differ. |
 
 For optional LACF-FT4, initialize from the corresponding frozen model, unfreeze only the top four WavLM Transformer blocks at `1e-5`, keep CLAP frozen, and retain the adapter/classifier LR unless a source-only pilot establishes a different fixed value. Report frozen and FT4 results separately. For optional SAM variants other than SAM-AASIST, create a separate named recipe and result row.
 
@@ -408,3 +408,112 @@ BF16 and queue fixtures establish implementation behavior only. Part 2 must
 resolve any correctness blocker, verify source-cache completion and local
 checkpoint availability, and validate authorized source-only CUDA integration,
 memory/throughput and reload behavior before starting final training.
+
+## Owner checksum exception for initial LACF (2026-10-08)
+
+Historical exception, superseded by the subsequent completion report; the current
+trainer no longer accepts its expired acknowledgment flag. The owner explicitly
+waived waiting for the ongoing transfer checksum job;
+leave that job running. This overrides the checksum-completion launch barrier
+for initial LACF only. It does not establish byte integrity. Use the separate
+`--acknowledge-unverified-cache-copy` flag, never `--confirm-cache-verified` for
+this case. Provenance records `cache_verified_by_operator=false`,
+`unverified_cache_copy_acknowledged=true` and
+`cache_copy_checksum_status=unverified_owner_waiver` in each run/checkpoint.
+No cache-verification completion marker is created. Canonical source train/dev
+membership/labels/counts, required file existence and decoding remain mandatory,
+as do actual source-only GPU feasibility, full source-development scoring,
+selected-checkpoint reload and a common frozen recipe before final training.
+Any later transfer checksum mismatch must be reported immediately.
+
+### Subsequent checksum completion report (2026-10-08)
+
+The owner relayed SSH1's successful verification at 05:35 on 8 October:
+1,243,408 manifest files (approximately 180 GB), no differences or failures,
+and verification finished. This supersedes the pending-checksum exception for
+future runs. Record its evidence source as owner-relayed SSH1 confirmation;
+SSH2 did not independently rerun the transfer checksum scan and does not have
+the original manifest/log. The canonical audio check on SSH2 independently
+passed membership/counts and full decoding for 1,243,402 required audio files;
+do not equate that count with all manifest entries or claim the six-entry
+difference has been reconciled.
+
+The latest owner instruction retains source-only GPU validation as a gate
+before full training, superseding the intervening request for immediate launch.
+Continue only the preserved source-validation pilot, without new optimizer
+updates or final-training initialization from its weights. Complete source-dev
+scoring and exact checkpoint-reload score/EER checks before freezing the recipe
+and launching fresh F1–F4 runs with `--confirm-cache-verified`.
+
+## Historical owner duration order and frozen-development optimization (2026-10-09)
+
+The owner stopped the first 10 s F1 run after two completed epochs to optimize
+execution/logging, then authorized LACF-4s before fresh LACF-10s, each F1→F4,
+seed 1234 only. Preserve stopped checkpoints and logs; no resume or pilot-weight
+initialization. The supplied SOTA details PDF is a duration-comparison reference,
+not authority to replace original paper recipes. Both duration arms retain the
+same effective batch and approved primary architecture/losses/optimizer/precision;
+source-only operational feasibility determines loading settings. No target
+performance or training data from a held-out fold may guide the recipe.
+
+Only centered source-development frozen encoder outputs may be persistently
+cached. Random training crops still execute both encoders every epoch. The cache
+binds exact canonical records/labels, duration, processors, revisions, code,
+precision and environment. Encoder/backend dev batches stay one; variable-length
+WavLM group normalization prevents assuming batched scores equal batch-one.
+Current adapter/head scores and EER are recomputed each epoch. Reload verifies
+unchanged frozen states and full canonical cached source scores; bounded direct
+full-audio/cache comparisons check encoder execution fidelity. No score, adapter
+output or target cache is used to select settings.
+
+The old source-only 10 s preflight passed, but its code hashes cannot authorize
+modified code or a 4 s run. Require a new duration-specific longest-input memory,
+finite update, full source-dev scoring/reload record before launching that arm.
+All-source canonical decoding and the owner-relayed transfer-checksum result
+remain valid evidence; do not repeat these scans each epoch or claim an
+independent SSH2 checksum audit. Physical/effective batch 132, accumulation 1,
+train workers 2, dev workers 4, prefetch 2 are the measured candidate; retain the
+same batch across durations. Short 10 s probes measured ~82→92 audio/s after
+optimization; 4 s measured ~176 audio/s. These operational measurements are not
+additional complete scientific recipe trials or final-fold results.
+
+Finite losses and trainable gradients still block invalid optimizer updates.
+CPU resampling kernels are reused without changing waveform arithmetic;
+normalization/probabilities/JS/entropy/losses remain FP32. The equivalent masked
+bona-fide JS reduction may change FP32 rounding, so do not claim identical
+training trajectories. Duration-specific bounded dev logits matched the original
+implementation and cached features exactly. The initial frozen-feature build
+still costs a full encoder pass, with visible progress; reuse saves subsequent
+passes. Training/export resume, FT4, ablations and target evaluation remain off.
+
+Existing WavLM native source checkpoint selection and native test scoring use
+full utterances despite 4 s training. Matched-four-second source calibration and
+eventual target reporting remain separately labeled controls under this protocol;
+LACF-4s training alone does not make existing WavLM reports a matched control.
+
+## Latest owner decision: 10 s only (2026-10-09)
+
+The owner stopped the 4 s-first queue to avoid another duration-specific multi-hour
+preflight. Run fresh optimized **10 s F1→F4 only**, seed 1234; 4 s is deferred,
+not automatically queued afterward. Preserve the interrupted 4 s check and old
+10 s run. Approved architecture, sampler, losses, precision, optimizer, batch,
+workers, selection and no-resume policy remain unchanged.
+
+Retain the already passed full native-10 s source-development/reload evidence,
+verifying its file hashes, canonical membership/labels/counts, scores/EER and
+checkpoint identity. Before fresh training, bounded current-code regression
+loads that original validation pilot to compare representative plus longest
+source-dev direct/cached logits exactly with the saved scores, and repeats the
+current longest-input finite update/memory check. This validates an execution
+refactor without spending another pair of full scoring passes; label the new
+record as reused full evidence plus bounded regression, not full current-code
+rescoring. A mismatch blocks training. The optimized and original duration/input
+policies and frozen official encoders are unchanged; no target data is used.
+
+Fresh final folds never load pilot-trained adapter/head weights. The unavoidable
+one-time full frozen-feature extraction is deferred to the first development
+phase after the first training epoch, and source selection/reload uses current
+backend scores thereafter. Completion still requires the full per-source scores,
+strict macro source-EER checkpoint rule and selected-checkpoint reload. No byte
+checksum or canonical decode scan is repeated. No 4 s, target evaluation, FT4,
+ablations or failed-fold restart is authorized by this change.

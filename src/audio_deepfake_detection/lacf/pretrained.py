@@ -9,9 +9,12 @@ from audio_deepfake_detection.lacf.model import (
 
 
 class DualViewCollator:
-    def __init__(self, wavlm_processor, clap_processor):
+    def __init__(self, wavlm_processor, clap_processor, *, segment_seconds=10):
         self.wavlm = wavlm_processor
         self.clap = clap_processor.feature_extractor
+        if segment_seconds not in (4, 10):
+            raise ValueError("Expected 4 s or 10 s physical segments")
+        self.segment_seconds = segment_seconds
         if (self.wavlm.sampling_rate != 16000 or self.wavlm.do_normalize
                 or self.wavlm.padding_side != "right" or self.wavlm.padding_value != 0):
             raise ValueError("Unexpected WavLM Base+ processor policy")
@@ -21,7 +24,7 @@ class DualViewCollator:
 
     def configuration(self):
         return {"wavlm": self.wavlm.to_dict(), "clap": self.clap.to_dict(),
-                "common_crop_seconds": 10, "train_crop": "random_native_interval",
+                "common_crop_seconds": self.segment_seconds, "train_crop": "random_native_interval",
                 "dev_crop": "centered_native_interval", "wavlm_waveform_normalization": False,
                 "wavlm_pooling": "last_hidden_state_feature_frame_masked_mean",
                 "clap_padding": "repeatpad", "clap_secondary_random_crop": False}
@@ -30,8 +33,8 @@ class DualViewCollator:
         if not items:
             raise ValueError("Cannot collate an empty batch")
         for w, c, _ in items:
-            if (w.ndim != 1 or c.ndim != 1 or not 400 <= len(w) <= 160000
-                    or not 0 < len(c) <= 480000 or not torch.isfinite(w).all() or not torch.isfinite(c).all()):
+            if (w.ndim != 1 or c.ndim != 1 or not 400 <= len(w) <= 16000 * self.segment_seconds
+                    or not 0 < len(c) <= 48000 * self.segment_seconds):
                 raise ValueError("Invalid views or audio too short for WavLM; no samples are skipped")
         wavlm = self.wavlm([w.numpy() for w, _, _ in items], sampling_rate=16000,
                            padding=True, return_attention_mask=True, return_tensors="pt")
@@ -43,7 +46,7 @@ class DualViewCollator:
                 "labels": torch.tensor([label for _, _, label in items], dtype=torch.long)}
 
 
-def load_local_model(*, config=ComponentConfig()):
+def load_local_model(*, config=ComponentConfig(), segment_seconds=10):
     """Use already-cached original checkpoints and tokenizers, never fetch them.
 
     Processor revisions follow the cached model revision so a changed upstream
@@ -65,6 +68,6 @@ def load_local_model(*, config=ComponentConfig()):
     with torch.no_grad():
         prototypes = text_prototypes(clap.get_text_features(**tokens))
     model = LACF(wavlm, clap, prototypes, config=config)
-    collator = DualViewCollator(wavlm_processor, clap_processor)
+    collator = DualViewCollator(wavlm_processor, clap_processor, segment_seconds=segment_seconds)
     return model, collator, {"wavlm_revision": wavlm_revision, "clap_revision": clap_revision,
                             "encoder_configs": {"wavlm": wavlm.config.to_dict(), "clap": clap.config.to_dict()}}

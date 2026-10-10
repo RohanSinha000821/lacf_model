@@ -1,6 +1,6 @@
 # Python code study guide
 
-This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU verification only. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13 and 15 cover AASIST and LACF. Studying these files does not require starting training or evaluation.
+This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13 and 15 cover AASIST and LACF. Studying these files does not require starting training or evaluation.
 
 ## 1. The overall flow
 
@@ -65,7 +65,7 @@ File: [protocol.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake
 | F3 | ASVspoof2019, CFAD, SpeechFake | ASVspoof5 / eval |
 | F4 | ASVspoof5, CFAD, SpeechFake | ASVspoof2019 / eval |
 
-Shared labels are `0 = bona fide` and `1 = spoof`. Owner decisions set families `wavlm_bs96`, `aasist` and initial `lacf` to seed `(1234,)` only; remaining models retain their declared plans. `final_seeds_for(model)` returns the applicable summary seed policy.
+Shared labels are `0 = bona fide` and `1 = spoof`. Owner decisions set families `wavlm_bs96`, `aasist` and initial `lacf`/`lacf4s` to seed `(1234,)` only; remaining models retain their declared plans. `final_seeds_for(model)` returns the applicable summary seed policy.
 
 | Function | Input | Output / responsibility |
 |---|---|---|
@@ -257,7 +257,7 @@ File: [summarize_results.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/s
 | `summarize()` | Output root, model family, seeds, optional non-final flag | Per-fold mean/sample standard deviation and equal-weight mean across four folds; validates report identities and required uncertainty metadata. |
 | `main()` | CLI arguments | Writes `summary.json`, or `exploratory_summary.json` in non-final mode; refuses overwrites. |
 
-Final mode requires all four folds. Families `wavlm_bs96`, `aasist` and initial `lacf` default to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
+Final mode requires all four folds. Families `wavlm_bs96`, `aasist` and initial `lacf`/`lacf4s` default to seed 1234 only: four evaluated runs, `training_seed_count=1`, `across_seed_variability_estimated=false`, and `sample_std=null`. Other models still require seeds 1234, 2345, 3456: twelve evaluated runs. When multiple seeds exist, standard deviation is across training seeds, using `ddof=1`. A single-seed standard deviation is unavailable, not zero. Dataset sizes do not determine the headline four-fold weighting; target observations are not pooled across folds. Target-bootstrap intervals remain in each run's report and do not substitute for seed replication.
 
 The batch-96 family is separate from historical batch-64 WavLM runs. A completed batch-64 F1 must not silently fill the batch-96 family's F1 slot; a consistent final batch-96 table requires its own F1 run. The F2→F3→F4 queue alone does not provide F1, and an interrupted F4 cannot count as a completed fold. A three-fold report remains partial.
 
@@ -449,6 +449,7 @@ scripts/lacf/train.py
   → lacf/pretrained.py: processor collation, valid sample masks, CLAP features
   → lacf/model.py: masked speech pool → adapter → anchor distributions → relation head
   → lacf/training.py: configured losses/accumulation → trainable-parameter AdamW
+  → lacf/cache.py: fixed source-dev frozen features (encode once, current backend every epoch)
   → shared metrics.compute_eer(): separate source domains → equal-domain macro selection
   → best/last checkpoints → selected source-dev reload → completion record
 ```
@@ -465,8 +466,9 @@ scripts/lacf/train.py
 | `LACFLoss` | Unweighted detection BCE, spoof-group semantic BCE and bona-fide-only JS; undefined/disabled auxiliary losses are omitted explicitly, and an all-spoof batch has zero consistency contribution. |
 | `lacf/precision.py` | Explicit FP32 LayerNorm/GroupNorm/BatchNorm boundaries preserve encoder state names and values. A CLAP projection output hook casts before its internal L2 normalization. |
 | `lacf/training.py`: `train_epoch()` | BF16 autocast with FP32 objective, actual-microbatch-count accumulation and finite-loss/gradient checks; loop consumes the configured objective without ablation-specific branching. |
+| `lacf/cache.py`: `frozen_development()` | Source-only centered crops; persistent FP32 WavLM/CLAP features bound to records, duration, processors, encoder/code revisions and environment. Rejects trainable encoders and corrupt/incomplete caches. No random train crops or backend outputs cached. |
 | `source_eer()` / `make_optimizer()` | Shared EER on source scores / AdamW on enabled trainable parameters only. |
-| `scripts/lacf/train.py` | Guards existing outputs/cache acknowledgment/CUDA; records components, processor policy, provenance, seed plan and recipe. Strict macro source-EER improvement, patience five, selected-checkpoint reload before completion. |
+| `scripts/lacf/train.py` | Guards existing outputs/cache acknowledgment/CUDA; the current verified-cache acknowledgment records its evidence source from the passed validation record; the expired owner-waiver flag is removed. Records components, processor policy, provenance, seed plan and recipe. Strict macro source-EER improvement, patience five, selected-checkpoint reload before completion. |
 | `scripts/lacf/train_folds.sh` / `verify_fold_completion()` | Fresh F1→F2→F3→F4 at seed 1234; shared completion/hash checks plus LACF recipe and source-reload validation. Any failure stops the queue. No skip/resume. |
 | `tests/test_lacf.py` | Synthetic audio, fake encoders and a random tiny WavLM configuration. Tests equations, actual feature-mask conversion, freezing, configuration, accumulation, target isolation and preservation; never loads downloaded weights or real data. |
 
@@ -480,6 +482,40 @@ batch, accumulation, workers and prefetch are configurable; defaults remain
 3e-4/weight decay 1e-4, constant LR, 30 epochs/patience 5 with no LR scaling.
 No training resume is implemented. Synthetic CPU BF16 checks do not establish
 actual checkpoint/CUDA integration, memory feasibility or source recipe freeze.
+When `LACF_SOURCE_VALIDATION_RECORD` is supplied by the validation supervisor,
+the trainer requires a passed record matching the configured recipe, source-code
+hashes and encoder revisions, and records its path/hash before creating a run.
 No FT4, ablation execution, target scoring or new threshold/CI logic is added.
+
+The subsequent owner-relayed SSH1 checksum-success report clears the transfer
+wait; future final runs use `--confirm-cache-verified`. Its original log is not
+available locally, so preserve the reported evidence source rather than claim
+an independent SSH2 audit. The source-validation freeze gate remains mandatory
+for the current launch; no deferred-preflight start path is used.
 After separately authorized source/GPU validation, a native LACF exporter still
 needs the common completed-checkpoint, score-manifest and source-first gates.
+
+Owner update, 2026-10-09: `--segment-seconds {4,10}` selects separate `lacf4s`
+and `lacf` seed-1234 families; `--output-root` protects stopped runs by allowing a
+fresh family directory. The queue routes output/completion checks to that root.
+The 4 s arm precedes the fresh 10 s arm. `encode_audio()` returns frozen pooled
+WavLM/normalized CLAP features; `classify_audio()` recomputes the current adapter,
+relations and classifier. Source-dev encoder/backend batches stay one. Reload
+checks frozen states before reuse; caches are never a training resume mechanism.
+
+Training loss/gradient checks remain at update boundaries. Loss summaries and
+cached scores accumulate on device; CPU transfer occurs at reporting/metric
+boundaries. Shared CPU resampling filters are cached with the exact original
+dtype/kernel arithmetic. Logs now report phase, counts, percentage, loss,
+throughput and ETA. NNPACK is disabled in CPU parent/workers on the unsupported
+virtual GPU host. Synthetic tests and bounded official-checkpoint CUDA probes
+are distinct from full source-dev/reload and final training completion.
+
+Latest owner decision, 2026-10-09: schedule only fresh10 s F1→F4; the4 s-first
+sequence is stopped and deferred. The source freeze explicitly records reused
+full native-10 s validation plus bounded optimized-code regression against saved
+pilot scores. It does not claim full current-code preflight rescoring. The trainer
+records this validation scope. Fixed source-dev features are built after the first
+training epoch, during its development phase, then reused. Pilot weights are
+validation-only and do not initialize final training. Existing outputs remain
+preserved and no resume is introduced.

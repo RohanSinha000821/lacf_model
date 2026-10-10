@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from functools import lru_cache
 import posixpath
 from pathlib import Path
 
@@ -467,6 +468,12 @@ def load_audio_segment(path: str | Path,*, seconds: float | None = None,  random
     return ( waveform.contiguous(),sample_rate,)
 
 
+@lru_cache(maxsize=32)
+def _cpu_resampler(source_rate, target_rate, dtype):
+    # Match functional.resample's explicit waveform dtype, including kernel math.
+    return torchaudio.transforms.Resample(source_rate, target_rate, dtype=dtype)
+
+
 def resample_audio(waveform: torch.Tensor,source_rate: int,target_rate: int,) -> torch.Tensor:
     """
     Resample a 1-D waveform.
@@ -481,4 +488,6 @@ def resample_audio(waveform: torch.Tensor,source_rate: int,target_rate: int,) ->
     if source_rate == target_rate:
         return waveform
 
+    if waveform.device.type == "cpu":
+        return _cpu_resampler(source_rate, target_rate, waveform.dtype)(waveform)
     return torchaudio.functional.resample(waveform,orig_freq=source_rate,new_freq=target_rate,)

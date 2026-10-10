@@ -33,7 +33,7 @@ final comparison. See the latest protocol for the queue and target-freeze gate.
 | LHCC | `LHCC.pdf`, Zhang et al., Information Fusion 134 (2026) 104358: low/high-level cross-layer consistency from XLS-R features through AFM and DCM. | Section 4.4: 16 kHz mono, exactly 64,600 samples through truncate/repeat, XLS-R 300M, batch 8, Adam LR `1e-6`, weight decay `1e-4`, maximum 10 epochs, early-stop patience 2, RawBoost. Weighted BCE is stated without numeric class weights. | Paper defines bona fide=1/spoof=0 and spoof score `1 - p_bona_fide`; convert carefully to project convention. It appears to call XLS-R frozen in one place while its algorithm describes joint end-to-end optimization; determine actual intended backbone training before implementation. Earlier project summary incorrectly treated batch/LR/epochs as unreported; use the paper's explicit values. |
 | AASIST | `AASIST.pdf`, Jung et al., ICASSP 2022: integrated spectro-temporal graph attention on raw waveform. | 16 kHz, 64,600-sample input, Adam LR `1e-4`, cosine schedule; paper averages three seeds. [Author config](https://github.com/clovaai/aasist/blob/main/config/AASIST.conf) specifies batch 24 and 100 epochs; the released training implementation supplies weight decay `1e-4` and cosine minimum `5e-6`. | Its released config can evaluate a held-out set whenever development improves. The LODO implementation must not use target results for selection. Map original label order and class weights to project bona-fide=0/spoof=1 convention. |
 
-Publication policy: all models share source/target folds, target isolation, score direction, selection criterion and evaluator. The owner's single-seed compute-budget exceptions use seed 1234 only for families `wavlm_bs96`, `aasist` and initial `lacf`; disclose unequal replication. Preserve model-specific input and optimization recipes, since equal batch sizes would not mean equal compute or equal methodological fidelity. If batch 128 is explored for AASIST or SAM-AASIST, give it a separate sensitivity result selected solely from source development data; do not silently substitute it for the paper-informed primary configuration. Report parameter count, memory, wall-clock time and optimizer updates so efficiency differences are visible. Do not include an interrupted WavLM pilot in the final comparison table.
+Publication policy: all models share source/target folds, target isolation, score direction, selection criterion and evaluator. The owner's single-seed compute-budget exceptions use seed 1234 only for families `wavlm_bs96`, `aasist` and initial `lacf`/`lacf4s`; disclose unequal replication. Preserve model-specific input and optimization recipes, since equal batch sizes would not mean equal compute or equal methodological fidelity. If batch 128 is explored for AASIST or SAM-AASIST, give it a separate sensitivity result selected solely from source development data; do not silently substitute it for the paper-informed primary configuration. Report parameter count, memory, wall-clock time and optimizer updates so efficiency differences are visible. Do not include an interrupted WavLM pilot in the final comparison table.
 
 ## P2–P4 reference findings and implementation (2026-10-05)
 
@@ -165,3 +165,53 @@ checkpoints, real source audio, CUDA BF16, memory and throughput remain
 unvalidated. No GPU test, training, download, target evaluation or publication
 was performed. Single-seed summaries have no across-seed SD; the shared
 conditional target-bootstrap contract is unchanged.
+
+Later owner decision (2026-10-08): initial LACF may proceed while transfer
+checksum verification remains pending, using the explicit unverified-copy
+acknowledgment and truthful provenance. This does not waive canonical source
+membership/counts/file decoding, source-only GPU checks, full source-dev
+scoring/reload or the common recipe freeze, and does not establish byte integrity.
+Official checkpoints have now been separately authorized for acquisition;
+actual validation progress and measurements are local run records, not synthetic
+test evidence or completed target results.
+
+Subsequent owner report (2026-10-08): SSH1's checksum verification completed at
+05:35 with all 1,243,408 manifest files matched and no differences/failures.
+SSH2 records the owner-relayed evidence; no independent SSH2 checksum rerun is
+claimed. The pending-copy exception is historical. Full source-only GPU,
+source-dev/reload and recipe-freeze gates remain required before final training.
+
+## Supplied SOTA summary and optimization review (2026-10-09)
+
+Read the complete 11-page `SOTA_Model_details.pdf`, including tables/equations,
+from the verified local extraction. The newly attached PDF is byte-identical to
+the indexed original (SHA-256 `f459a3dc0e0f59a96db791176fb6c7f16cd499ae9fdc8d46fa7a45251f5a70e2`).
+It supports the LACF-4s duration comparison alongside primary LACF-10s. Original
+papers/released configurations and later owner decisions still resolve recipe
+conflicts. Owner now authorizes 4 s F1→F4 first, then fresh 10 s F1→F4; both use
+seed 1234 and equal effective batch. WavLM's native full-utterance dev/test remains
+explicitly different from the later matched-four-second scoring control.
+
+The stopped first 10 s run's two epochs/checkpoints remain preserved. Optimized
+source-dev execution caches only frozen features of fixed centered crops, then
+recomputes current trainable backend scores each epoch. Training random crops are
+not cached. Encoder/backend development batches remain one. CPU resampler reuse,
+fewer device/CPU barriers and clearer phase/progress logs preserve the primary
+recipe. CLAP's fixed 10 s feature window remains repeat-padded for 4 s inputs;
+reducing physical evidence does not proportionally reduce its encoder compute.
+
+289 CUDA-hidden synthetic tests passed. Bounded official-weight source GPU
+checks are recorded separately from full canonical source-dev/reload validation;
+modified code requires new duration-specific freeze records before final runs.
+Short training probes measured ~82→92 audio/s at 10 s and ~176 at 4 s, batch 132.
+No target performance was consulted, no SOTA model recipe changed, and no
+completed four-fold result or independent SSH2 transfer checksum audit is claimed.
+
+Latest owner override, 2026-10-09: stop the4 s-specific work and train10 s only.
+The duration comparison is deferred. Preserve old full10 s source/reload evidence
+and validate the optimized execution against its saved pilot scores in bounded
+source-only regression; record the reuse scope explicitly. First-development
+frozen-feature extraction is still a full pass, but is performed after the first
+training epoch, rather than rerunning both old validation passes before training.
+All approved numerical choices and source-only checkpoint selection stay fixed;
+no target result informed this scheduling change.

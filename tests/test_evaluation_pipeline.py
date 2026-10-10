@@ -188,6 +188,7 @@ def test_seed_exception_does_not_relax_other_model_final_summaries(single_seed_w
 
     assert final_seeds_for("aasist") == (1234,)
     assert final_seeds_for("lacf") == (1234,)
+    assert final_seeds_for("lacf4s") == (1234,)
     assert final_seeds_for("ssl_gating") == FINAL_SEEDS
     with pytest.raises(ValueError, match="exactly seeds"):
         summarize(single_seed_wavlm_reports, "ssl_gating", (1234,))
@@ -402,7 +403,7 @@ def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch
         assert "speechfake" not in visited
 
 
-@pytest.mark.parametrize("family", ["aasist", "lacf"])
+@pytest.mark.parametrize("family", ["aasist", "lacf", "lacf4s"])
 def test_single_seed_final_summary_and_cli(single_seed_wavlm_reports, monkeypatch, family):
     from scripts import summarize_results
 

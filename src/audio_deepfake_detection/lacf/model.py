@@ -55,10 +55,10 @@ class ComponentConfig:
         return self.bonafide_loss or bool(set(self.feature_groups) - {"p_w", "entropy_w"})
 
 
-def unit_vectors(values):
+def unit_vectors(values, *, validate=False):
     with torch.autocast(values.device.type, enabled=False):
         values = values.float()
-        if values.ndim < 2 or not torch.isfinite(values).all() or (values.norm(dim=-1) == 0).any():
+        if values.ndim < 2 or (validate and (not torch.isfinite(values).all() or (values.norm(dim=-1) == 0).any())):
             raise ValueError("Embedding vectors must be finite and nonzero")
         return F.normalize(values, dim=-1)
 
@@ -72,7 +72,7 @@ def text_prototypes(text_features):
     """Normalize each of 24 projected features, then average and normalize per concept."""
     if text_features.shape != (24, 512):
         raise ValueError("Expected 24 projected 512-dimensional CLAP text features")
-    return unit_vectors(unit_vectors(text_features).reshape(8, 3, 512).mean(dim=1))
+    return unit_vectors(unit_vectors(text_features, validate=True).reshape(8, 3, 512).mean(dim=1), validate=True)
 
 
 def entropy(probabilities):
@@ -129,7 +129,7 @@ class LACFLoss(nn.Module):
 
     def fp32_loss(self, output, labels):
         logit, labels = output["logit"].float(), labels.float()
-        if labels.shape != output["logit"].shape or not ((labels == 0) | (labels == 1)).all():
+        if labels.shape != output["logit"].shape or (labels.device.type == "cpu" and not ((labels == 0) | (labels == 1)).all()):
             raise ValueError("Expected one binary label per spoof logit")
         detection = F.binary_cross_entropy_with_logits(logit, labels)
         zero = detection * 0
@@ -138,7 +138,8 @@ class LACFLoss(nn.Module):
             semantic = F.binary_cross_entropy(output["p_w"].float()[:, 3:].sum(-1).clamp(0, 1), labels)
         if self.config.bonafide_loss:
             divergence = js_divergence(output["p_w"], output["p_c"])
-            bonafide = divergence[labels == 0].mean() if (labels == 0).any() else zero
+            mask = labels == 0
+            bonafide = (divergence * mask).sum() / mask.sum().clamp_min(1)
         total = detection + self.config.semantic_weight * semantic + self.config.bonafide_weight * bonafide
         return {"total": total, "detection": detection, "semantic": semantic, "bonafide": bonafide}
 
@@ -167,7 +168,7 @@ class LACF(nn.Module):
             raise ValueError("CLAP must expose projected 512-dimensional audio features")
         if prototypes.shape != (8, 512):
             raise ValueError("Expected eight 512-dimensional fixed prototypes")
-        self.register_buffer("prototypes", unit_vectors(prototypes.detach()).clone())
+        self.register_buffer("prototypes", unit_vectors(prototypes.detach(), validate=True).clone())
         self.adapter = (nn.Sequential(FP32LayerNorm(768), nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.2),
                                       nn.Linear(512, 512)) if config.needs_wavlm else None)
         self.fusion = fusion if fusion is not None else RelationFeatures(config.feature_groups)
@@ -202,30 +203,40 @@ class LACF(nn.Module):
                 "classifier": [self.fusion.output_dim, 64, 16, 1],
                 "sensitive_calculations_dtype": "float32"}
 
-    def forward(self, batch):
+    def encode_audio(self, batch):
+        """Only fixed encoder outputs; never cache the trainable adapter/head."""
         views = {}
         if self.wavlm is not None:
             with torch.no_grad():
                 mask = batch["wavlm"]["attention_mask"]
-                if mask.ndim != 2 or not mask.bool().any(dim=1).all():
+                if mask.ndim != 2 or (mask.device.type == "cpu" and not mask.bool().any(dim=1).all()):
                     raise ValueError("Expected a nonempty validity mask for every WavLM input")
                 hidden = self.wavlm(**batch["wavlm"], return_dict=True).last_hidden_state
                 frame_mask = self.wavlm._get_feature_vector_attention_mask(hidden.shape[1], mask)
-                if not frame_mask.any(dim=1).all():
+                if frame_mask.device.type == "cpu" and not frame_mask.any(dim=1).all():
                     raise ValueError("Audio is too short for a valid WavLM feature frame")
                 with torch.autocast(hidden.device.type, enabled=False):
                     pooled = (hidden.float() * frame_mask.unsqueeze(-1)).sum(1) / frame_mask.sum(1, keepdim=True)
             views["z_w"] = pooled
-            views["v_w"] = unit_vectors(self.adapter(pooled))
-            views["p_w"] = anchor_distribution(views["v_w"], self.prototypes, self.config.temperature)
         if self.clap is not None:
             with torch.no_grad():
                 views["v_c"] = unit_vectors(self.clap.get_audio_features(**batch["clap"]))
-                views["p_c"] = anchor_distribution(views["v_c"], self.prototypes, self.config.temperature)
+        return views
+
+    def classify_audio(self, audio):
+        views = dict(audio)
+        if self.wavlm is not None:
+            views["v_w"] = unit_vectors(self.adapter(views["z_w"]))
+            views["p_w"] = anchor_distribution(views["v_w"], self.prototypes, self.config.temperature)
+        if self.clap is not None:
+            views["p_c"] = anchor_distribution(views["v_c"], self.prototypes, self.config.temperature)
         features = self.fusion(views)
         if features.ndim != 2 or features.shape[1] != self.fusion.output_dim:
             raise ValueError("Fusion output disagrees with its declared feature dimension")
         return {**views, "features": features, "logit": self.classifier(features).squeeze(-1)}
+
+    def forward(self, batch):
+        return self.classify_audio(self.encode_audio(batch))
 
     @staticmethod
     def spoof_score(output):

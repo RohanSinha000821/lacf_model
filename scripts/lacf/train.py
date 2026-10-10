@@ -11,7 +11,9 @@ import os
 import platform
 import random
 import subprocess
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import torch
@@ -19,6 +21,7 @@ import torchaudio
 import transformers
 
 from audio_deepfake_detection.lacf.data import LACFDataset, make_loader
+from audio_deepfake_detection.lacf.cache import frozen_development
 from audio_deepfake_detection.lacf.pretrained import load_local_model
 from audio_deepfake_detection.lacf.model import PRIMARY_TRAINABLE_PARAMETERS
 from audio_deepfake_detection.lacf.training import make_optimizer, source_eer, train_epoch
@@ -33,6 +36,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fold", choices=tuple(FOLDS), required=True)
     parser.add_argument("--seed", type=int, choices=final_seeds_for("lacf"), default=1234)
+    parser.add_argument("--segment-seconds", type=int, choices=(4, 10), default=10)
+    parser.add_argument("--output-root", type=Path, help="Fresh output family directory; existing runs are never overwritten")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=ACCUMULATION_STEPS)
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
@@ -65,15 +70,26 @@ def code_provenance(root):
     return result
 
 
+def development_cache_identity(config):
+    """Bind fixed source-dev features to the same processors, encoders and code."""
+    return {"segment_seconds": config["segment_seconds"], "input_policy": config["input_policy"],
+            "revisions": {key: config[key] for key in ("wavlm_revision", "clap_revision")},
+            "enabled_encoders": [config["components"][key] for key in ("wavlm_enabled", "clap_audio_enabled")],
+            "encoding_code": {key: value for key, value in config["source_sha256"].items()
+                              if key.endswith(("model.py", "pretrained.py", "precision.py", "data.py"))}}
+
+
 def main():
     args = parse_args()
     root = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[2]))
-    run_dir = root / "outputs/lacf" / args.fold / str(args.seed)
+    family = "lacf4s" if args.segment_seconds == 4 else "lacf"
+    output_root = args.output_root or root / "outputs" / family
+    run_dir = output_root / args.fold / str(args.seed)
     # Preserve even partial/unrelated work; no implicit resume or replacement.
     if run_dir.exists():
         raise FileExistsError(f"Run directory already exists: {run_dir}")
     if not args.confirm_cache_verified:
-        raise ValueError("Verified transfer/content integrity is required before training; directory presence is insufficient")
+        raise ValueError("Verified transfer/content integrity must be acknowledged before training")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for actual LACF training; use synthetic tests for CPU checks")
     if not torch.cuda.is_bf16_supported(including_emulation=False):
@@ -84,20 +100,22 @@ def main():
     torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    torch.backends.nnpack.set_flags(False)
     # Load cached encoders before creating run files. Missing weights fail closed.
-    model, collator, revisions = load_local_model()
+    model, collator, revisions = load_local_model(segment_seconds=args.segment_seconds)
     trainable = {name: p for name, p in model.named_parameters() if p.requires_grad}
     if (sum(p.numel() for p in trainable.values()) != PRIMARY_TRAINABLE_PARAMETERS
             or any(not name.startswith(("adapter.", "classifier.")) for name in trainable)):
         raise ValueError("Primary LACF must train only the 661,479 adapter/classifier parameters")
     fold = FOLDS[args.fold]
-    train_sets, dev_loaders, counts = [], {}, {}
+    train_sets, dev_loaders, counts, development_records = [], {}, {}, {}
     for domain in fold["sources"]:
         train_records = read_dataset(domain, "train", args.data_root)
         dev_records = read_dataset(domain, "dev", args.data_root)
+        development_records[domain] = dev_records
         counts[domain] = {"train": len(train_records), "dev": len(dev_records)}
-        train_sets.append(LACFDataset(train_records, training=True))
-        dev_loaders[domain] = make_loader([LACFDataset(dev_records, training=False)], collator,
+        train_sets.append(LACFDataset(train_records, training=True, segment_seconds=args.segment_seconds))
+        dev_loaders[domain] = make_loader([LACFDataset(dev_records, training=False, segment_seconds=args.segment_seconds)], collator,
             training=False, seed=args.seed, batch_size=1, num_workers=args.eval_workers,
             prefetch_factor=args.prefetch_factor)
     train_loader = make_loader(train_sets, collator, training=True, seed=args.seed,
@@ -106,7 +124,8 @@ def main():
     model = model.to(device)
     optimizer = make_optimizer(model)
     config = {
-        "model_name": "LACF-Frozen", "run_name": "lacf", "fold": args.fold, "seed": args.seed,
+        "model_name": "LACF-Frozen", "run_name": family, "fold": args.fold, "seed": args.seed,
+        "segment_seconds": args.segment_seconds, "output_root": str(output_root),
         "final_seed_plan": list(final_seeds_for("lacf")), "seed_policy": "single_seed_compute_budget",
         "sources": list(fold["sources"]),
         "target": fold["target"], "target_split": fold["target_split"], "data_root": str(args.data_root),
@@ -124,6 +143,10 @@ def main():
         "score": "scalar_spoof_logit", "augmentation": "none",
         "accumulation_loss": "mean_of_actual_microbatch_losses_including_final_incomplete_group",
         "cache_verified_by_operator": args.confirm_cache_verified,
+        "cache_copy_checksum_status": "verified_by_operator",
+        "development_execution": "cached_frozen_audio_batch1_current_backend_batch1",
+        "development_cache_scope": "source_only_centered_crops_no_trainable_features_or_scores",
+        "nnpack_enabled": False,
         "total_parameters": sum(p.numel() for p in model.parameters()),
         "trainable_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad),
         "python_version": platform.python_version(), "numpy_version": np.__version__,
@@ -136,6 +159,24 @@ def main():
         "recipe_status": "starting_recipe_requires_source_only_validation_before_final_target_access",
         **revisions, **code_provenance(root),
     }
+    validation_path = os.environ.get("LACF_SOURCE_VALIDATION_RECORD")
+    if validation_path:
+        validation = json.loads(Path(validation_path).read_text())
+        recipe_keys = ("seed", "segment_seconds", "batch_size", "gradient_accumulation_steps", "num_workers",
+                       "eval_workers", "prefetch_factor", "precision", "trainable_parameters",
+                       "learning_rate", "weight_decay", "scheduler", "max_epochs", "patience")
+        if (validation.get("status") != "passed"
+                or any(validation.get("recipe", {}).get(key) != config[key] for key in recipe_keys)
+                or validation.get("source_sha256") != config["source_sha256"]
+                or validation.get("revisions") != {key: config[key] for key in ("wavlm_revision", "clap_revision")}):
+            raise ValueError("Frozen source-validation recipe/code/checkpoints do not match this run")
+        config.update(source_validation_record=str(Path(validation_path).resolve()),
+                      source_validation_sha256=checkpoint_digest(Path(validation_path)),
+                      source_validation_scope=validation.get("source_validation_scope", "full_source_dev_and_reload"),
+                      recipe_status="source_validated_frozen",
+                      cache_copy_checksum_status=validation["copy_checksum_status"],
+                      checksum_evidence_source=validation["checksum_evidence_source"],
+                      checksum_evidence_sha256=validation["checksum_evidence_sha256"])
     run_dir.mkdir(parents=True, exist_ok=False)
     save_json(run_dir / "config.json", config)
     log = logging.getLogger(f"lacf.{args.fold}.{args.seed}")
@@ -143,15 +184,39 @@ def main():
     log.propagate = False
     handlers = [logging.FileHandler(run_dir / "training.log"), logging.StreamHandler()]
     for handler in handlers:
+        formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        formatter.converter = lambda timestamp: datetime.fromtimestamp(timestamp, ZoneInfo("Europe/Berlin")).timetuple()
+        handler.setFormatter(formatter)
         log.addHandler(handler)
     best, best_epoch, bad_epochs, updates = float("inf"), 0, 0, 0
     try:
-        log.info("sources=%s; target=%s remains unopened; components=%s", fold["sources"], fold["target"], config["components"])
+        log.info("%s | seed %s | %ss | batch %s x accumulation %s | trainable %s | times Europe/Berlin",
+                 args.fold.upper(), args.seed, args.segment_seconds, args.batch_size,
+                 args.gradient_accumulation_steps, config["trainable_parameters"])
+        log.info("sources=%s | target=%s remains unopened", fold["sources"], fold["target"])
+        cache_identity = development_cache_identity(config)
+        config["development_feature_caches"] = {}
         for epoch in range(1, MAX_EPOCHS + 1):
+            log.info("epoch %s/%s | training starts | %s batches", epoch, MAX_EPOCHS, len(train_loader))
             losses, steps = train_epoch(model, train_loader, optimizer, device,
-                                       accumulation_steps=args.gradient_accumulation_steps)
+                                       accumulation_steps=args.gradient_accumulation_steps, logger=log,
+                                       phase=f"epoch {epoch} train")
             updates += steps
-            dev_eers = {domain: source_eer(model, loader, device) for domain, loader in dev_loaders.items()}
+            log.info("epoch %s | training finished | loss %.5f | source development starts", epoch, losses["total"])
+            if epoch == 1:
+                # Build fixed features during first development, after useful training.
+                for domain in fold["sources"]:
+                    log.info("dev cache %s: encode fixed crops once, then reuse frozen features", domain)
+                    dev_loaders[domain] = frozen_development(model, dev_loaders[domain], development_records[domain], device,
+                        identity={**cache_identity, "domain": domain}, directory=root / "outputs/lacf_frozen_dev_features",
+                        logger=log, phase="cache " + domain)
+                    cache = dev_loaders[domain]
+                    config["development_feature_caches"][domain] = {"path": str(cache.path), "sha256": cache.sha256}
+                save_json(run_dir / "config.json", config)
+            dev_eers = {}
+            for domain, loader in dev_loaders.items():
+                dev_eers[domain] = source_eer(model, loader, device, logger=log, phase=f"epoch {epoch} dev {domain}")
+                log.info("epoch %s | %s source-dev EER %.3f%%", epoch, domain, 100 * dev_eers[domain])
             macro = float(np.mean(list(dev_eers.values())))
             verify_source_macro(macro, macro)
             improved = macro < best
@@ -172,8 +237,13 @@ def main():
             if bad_epochs >= PATIENCE:
                 break
         selected = torch.load(run_dir / "best.pt", map_location="cpu", weights_only=True)
+        for name, value in model.state_dict().items():
+            if name.startswith(("wavlm.", "clap.", "prototypes")) and not torch.equal(value.cpu(), selected["model_state_dict"][name]):
+                raise ValueError("Frozen encoder/prototype changed; development cache cannot verify this checkpoint")
         model.load_state_dict(selected["model_state_dict"])
-        reloaded = {domain: source_eer(model, loader, device) for domain, loader in dev_loaders.items()}
+        log.info("selected checkpoint reload verification starts")
+        reloaded = {domain: source_eer(model, loader, device, logger=log, phase="reload " + domain)
+                    for domain, loader in dev_loaders.items()}
         verify_source_macro(float(np.mean(list(reloaded.values()))), best)
         for domain, value in reloaded.items():
             verify_source_macro(value, selected["dev_eers"][domain])

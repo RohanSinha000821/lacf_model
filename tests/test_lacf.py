@@ -14,6 +14,7 @@ from torch.nn import functional as F
 from transformers import ClapFeatureExtractor, Wav2Vec2FeatureExtractor, WavLMConfig, WavLMModel
 
 from audio_deepfake_detection.lacf import data, model, pretrained, training
+from audio_deepfake_detection.lacf.cache import FrozenDevelopmentFeatures
 from audio_deepfake_detection.protocol import FOLDS, verify_completed_run
 from scripts.lacf import train
 
@@ -379,9 +380,13 @@ def test_training_cuda_guard_precedes_local_weights_or_data(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("reload_mismatch", [False, True])
-def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tmp_path, monkeypatch, reload_mismatch):
+@pytest.mark.parametrize("segment_seconds", [4, 10])
+@pytest.mark.parametrize("validation_record", [None, "passed", "changed_code"])
+def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tmp_path, monkeypatch, reload_mismatch, segment_seconds, validation_record):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.delenv("LACF_SOURCE_VALIDATION_RECORD", raising=False)
     monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f3", "--confirm-cache-verified",
+        "--segment-seconds", str(segment_seconds),
         "--batch-size", "12", "--gradient-accumulation-steps", "8", "--num-workers", "3",
         "--eval-workers", "2", "--prefetch-factor", "4"])
     monkeypatch.setattr(train, "MAX_EPOCHS", 4)
@@ -395,7 +400,21 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
     monkeypatch.setattr(train, "code_provenance", lambda root: {"source_sha256": {"fixture": "fixture"}})
     net = detector()
     collator = SimpleNamespace(configuration=lambda: {"fixture": True})
-    monkeypatch.setattr(train, "load_local_model", lambda: (net, collator, {"fixture_revision": "local"}))
+    monkeypatch.setattr(train, "load_local_model", lambda **kwargs: (net, collator,
+        {"wavlm_revision": "fixture-w", "clap_revision": "fixture-c"}))
+    if validation_record:
+        record = tmp_path / "source_validation.json"
+        record.write_text(json.dumps({"status": "passed", "recipe": {
+            "seed": 1234, "segment_seconds": segment_seconds, "batch_size": 12, "gradient_accumulation_steps": 8,
+            "num_workers": 3, "eval_workers": 2, "prefetch_factor": 4,
+            "precision": "bfloat16_mixed", "trainable_parameters": 661479,
+            "learning_rate": .0003, "weight_decay": .0001, "scheduler": "constant",
+            "max_epochs": 4, "patience": 1},
+            "copy_checksum_status": "verified_owner_reported_ssh1",
+            "checksum_evidence_source": "owner_relayed_ssh1", "checksum_evidence_sha256": "fixture-checksum",
+            "source_sha256": {"fixture": "changed" if validation_record == "changed_code" else "fixture"},
+            "revisions": {"wavlm_revision": "fixture-w", "clap_revision": "fixture-c"}}))
+        monkeypatch.setenv("LACF_SOURCE_VALIDATION_RECORD", str(record))
     opened = []
 
     def reader(domain, split, root):
@@ -406,6 +425,11 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
     monkeypatch.setattr(train, "read_dataset", reader)
     loader_settings = []
     monkeypatch.setattr(train, "make_loader", lambda *args, **kwargs: (loader_settings.append(kwargs), [batch()])[1])
+    def fixed_features(model, loader, records, device, **kwargs):
+        assert trained == [True], "Development extraction must follow the first training epoch"
+        return FrozenDevelopmentFeatures({}, torch.tensor([label for _, label in records]), tmp_path / "fixture_cache.pt", "fixture-cache")
+
+    monkeypatch.setattr(train, "frozen_development", fixed_features)
     trained = []
 
     def epoch(*args, **kwargs):
@@ -416,8 +440,14 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
     monkeypatch.setattr(train, "train_epoch", epoch)
     # Equal macro on epoch 2: keep epoch 1, then validate that selected checkpoint again.
     eers = iter([.1, .2, .3] * 2 + ([.1, .2, .4] if reload_mismatch else [.1, .2, .3]))
-    monkeypatch.setattr(train, "source_eer", lambda *args: next(eers))
-    directory = tmp_path / "outputs/lacf/f3/1234"
+    monkeypatch.setattr(train, "source_eer", lambda *args, **kwargs: next(eers))
+    family = "lacf4s" if segment_seconds == 4 else "lacf"
+    directory = tmp_path / "outputs" / family / "f3/1234"
+    if validation_record == "changed_code":
+        with pytest.raises(ValueError, match="Frozen source-validation"):
+            train.main()
+        assert not trained and not directory.exists()
+        return
     if reload_mismatch:
         with pytest.raises(ValueError, match="Source-dev macro EER"):
             train.main()
@@ -432,7 +462,15 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
     assert completion["best_checkpoint_sha256"] == digest
     config = json.loads((directory / "config.json").read_text())
     assert config["selected_epoch"] == 1 and config["selected_checkpoint_sha256"] == digest
+    if validation_record:
+        assert config["recipe_status"] == "source_validated_frozen"
+        assert config["source_validation_sha256"] == train.checkpoint_digest(record)
     assert config["final_seed_plan"] == [1234]
+    assert config["cache_verified_by_operator"] is True
+    assert config["cache_copy_checksum_status"] == ("verified_owner_reported_ssh1" if validation_record else "verified_by_operator")
+    if validation_record:
+        assert config["checksum_evidence_source"] == "owner_relayed_ssh1"
+    assert config["run_name"] == family and config["segment_seconds"] == segment_seconds
     assert config["components"]["fusion"]["output_dim"] == 35
     assert config["precision"] == "bfloat16_mixed" and config["effective_batch_size"] == 96
     assert config["sensitive_dtype"] == "float32" and config["trainable_parameters"] == 661_479
@@ -450,7 +488,8 @@ def test_primary_trainer_source_isolation_ties_stopping_completion_and_reload(tm
 
 @pytest.mark.parametrize("arguments", [["--seed", "99"], ["--seed", "2345"], ["--seed", "3456"],
     ["--num-workers", "-1"], ["--prefetch-factor", "0"], ["--batch-size", "0"],
-    ["--gradient-accumulation-steps", "0"], ["--resume"]])
+    ["--gradient-accumulation-steps", "0"], ["--resume"],
+    ["--acknowledge-unverified-cache-copy"], ["--segment-seconds", "5"]])
 def test_trainer_rejects_undeclared_seeds_or_invalid_loaders(monkeypatch, arguments):
     monkeypatch.setattr(sys, "argv", ["train.py", "--fold", "f1", *arguments])
     with pytest.raises(SystemExit):
@@ -486,6 +525,111 @@ def test_primary_parameter_count_and_cpu_bf16_fp32_boundaries():
         assert model.entropy(p).dtype == torch.float32
         torch.testing.assert_close(model.js_divergence(p, q), torch.full((2,), np.log(2)))
         assert net.objective(output, torch.ones(2))["bonafide"].item() == 0
+
+
+class SyntheticDevelopment(torch.utils.data.Dataset):
+    def __init__(self, count=8, *, training=False):
+        self.training, self.count = training, count
+
+    def __len__(self):
+        return self.count
+
+    def __getitem__(self, index):
+        inputs = batch()
+        row = index % 2
+        return {key: {name: value[row:row+1] for name, value in inputs[key].items()}
+                for key in ("wavlm", "clap")} | {"labels": inputs["labels"][row:row+1]}
+
+
+def test_frozen_dev_cache_matches_direct_scores_and_updates_only_backend(tmp_path):
+    from audio_deepfake_detection.lacf.cache import frozen_development
+    net = detector().eval()
+    dataset = SyntheticDevelopment()
+    loader = torch.utils.data.DataLoader(dataset, batch_size=None)
+    records = [(f"source-{i}", i % 2) for i in range(len(dataset))]
+    calls = []
+    net.wavlm.register_forward_hook(lambda *args: calls.append(True))
+    cached = frozen_development(net, loader, records, "cpu", identity={"seconds": 4}, directory=tmp_path)
+    assert len(calls) == len(dataset)
+    assert all(x.dtype == torch.float32 for x in cached.features.values())
+    assert not any(x.requires_grad for x in cached.features.values())
+    direct, reused = [], []
+    with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16):
+        for i in range(len(dataset)):
+            direct.append(net(dataset[i])["logit"])
+            reused.append(net.classify_audio({key: value[i:i+1] for key, value in cached.features.items()})["logit"])
+    torch.testing.assert_close(torch.cat(direct), torch.cat(reused), rtol=0, atol=0)
+    assert training.source_eer(net, loader, "cpu") == training.source_eer(net, cached, "cpu")
+    calls.clear()
+    loaded = frozen_development(net, loader, records, "cpu", identity={"seconds": 4}, directory=tmp_path)
+    assert not calls and loaded.sha256 == cached.sha256
+    with torch.no_grad():
+        net.classifier[-1].bias.add_(.5)
+    with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16):
+        changed = net.classify_audio({key: value[:1] for key, value in loaded.features.items()})["logit"]
+    assert not torch.equal(changed, reused[0])
+    assert not calls
+
+
+def test_dev_cache_cannot_cache_training_or_changed_encoders_and_rejects_corruption(tmp_path):
+    from audio_deepfake_detection.lacf.cache import frozen_development
+    net = detector()
+    records = [(f"source-{i}", i % 2) for i in range(8)]
+    loader = torch.utils.data.DataLoader(SyntheticDevelopment(training=True), batch_size=None)
+    with pytest.raises(ValueError, match="deterministic source development"):
+        frozen_development(net, loader, records, "cpu", identity={}, directory=tmp_path)
+    loader = torch.utils.data.DataLoader(SyntheticDevelopment(), batch_size=None)
+    net.wavlm.requires_grad_(True)
+    with pytest.raises(ValueError, match="trainable encoder"):
+        frozen_development(net, loader, records, "cpu", identity={}, directory=tmp_path)
+    net.wavlm.requires_grad_(False)
+    four = frozen_development(net, loader, records, "cpu", identity={"seconds": 4}, directory=tmp_path)
+    ten = frozen_development(net, loader, records, "cpu", identity={"seconds": 10}, directory=tmp_path)
+    assert four.path != ten.path
+    payload = torch.load(four.path, weights_only=True)
+    payload["labels"][0] = 1
+    torch.save(payload, four.path)  # Corrupt only this disposable synthetic artifact.
+    with pytest.raises(ValueError, match="identity/labels mismatch"):
+        frozen_development(net, loader, records, "cpu", identity={"seconds": 4}, directory=tmp_path)
+
+
+@pytest.mark.parametrize("source", [8000, 16000, 22050, 24000, 44100, 48000])
+@pytest.mark.parametrize("target", [16000, 48000])
+def test_cached_resampling_kernel_preserves_functional_waveform_exactly(source, target):
+    import torchaudio
+    waveform = torch.linspace(-.3, .2, 1003)
+    original = torchaudio.functional.resample(waveform, source, target)
+    first = data.resample_audio(waveform, source, target)
+    second = data.resample_audio(waveform, source, target)
+    torch.testing.assert_close(original, first, rtol=0, atol=0)
+    torch.testing.assert_close(original, second, rtol=0, atol=0)
+
+
+def test_four_second_interval_and_processor_bounds_preserve_short_audio(tmp_path):
+    path = tmp_path / "eight_seconds.wav"
+    waveform = np.linspace(-.2, .3, 8 * 16000, dtype=np.float32)
+    sf.write(path, waveform, 16000, subtype="FLOAT")
+    w, c, _ = data.LACFDataset([(str(path), 0)], training=False, segment_seconds=4)[0]
+    assert len(w) == 64000 and len(c) == 192000
+    torch.testing.assert_close(w, torch.from_numpy(waveform[32000:96000]), rtol=0, atol=0)
+    processor = pretrained.DualViewCollator(Wav2Vec2FeatureExtractor(do_normalize=False),
+        SimpleNamespace(feature_extractor=ClapFeatureExtractor(truncation="rand_trunc", frequency_min=50)),
+        segment_seconds=4)
+    assert processor.configuration()["common_crop_seconds"] == 4
+    with pytest.raises(ValueError, match="Invalid views"):
+        processor([(torch.ones(64001), torch.ones(192003), 0)])
+
+
+def test_nonfinite_training_is_refused_before_optimizer_update():
+    net = detector()
+    optimizer = training.make_optimizer(net)
+    before = {k: v.clone() for k, v in net.state_dict().items()}
+    inputs = batch()
+    inputs["wavlm"]["input_values"][0, 0] = float("inf")
+    with pytest.raises((RuntimeError, ValueError)):
+        training.train_epoch(net, [inputs], optimizer, "cpu")
+    for key, value in before.items():
+        torch.testing.assert_close(net.state_dict()[key], value, rtol=0, atol=0)
 
 
 def test_encoder_norms_and_clap_internal_embedding_normalization_are_fp32():

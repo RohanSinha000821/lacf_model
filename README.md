@@ -395,6 +395,26 @@ component/processor configuration, hashes, best/last checkpoints and a log.
 The selected checkpoint is source-dev reloaded before the completion marker.
 An existing run directory, including partial work, is never overwritten.
 
+Historical owner exception (2026-10-08): the first validation started with an
+explicit unverified-copy acknowledgment and truthful provenance. The owner later
+reported successful checksum completion. The expired exception flag has been
+removed from the current trainer; preserved records retain their original status.
+
+Current owner report (2026-10-08): SSH1 completed transfer-manifest verification
+at 05:35, matching 1,243,408 files (approximately 180 GB), with no differences or
+failures. SSH2 records this as owner-relayed evidence, not an independent local
+checksum audit. Subsequent runs use `--confirm-cache-verified`; the pending-copy
+exception is no longer needed. Full source-only GPU validation, source-dev
+scoring, checkpoint-reload checks and recipe freeze still precede final training.
+The local canonical-audio check decoded 1,243,402 required files; that count
+and the transfer manifest's total have separate scopes.
+
+The source-validation supervisor sets `LACF_SOURCE_VALIDATION_RECORD` to its
+completed freeze record before launching final folds. Each run records that
+file's path and SHA-256 and rejects mismatched settings, code hashes or encoder
+revisions. Pilot-trained weights are retained as validation evidence only;
+final folds load the original frozen encoders and initialize adapter/head fresh.
+
 Configure `--batch-size`, `--gradient-accumulation-steps`, `--num-workers`,
 `--eval-workers` and `--prefetch-factor`. Defaults remain physical batch 4,
 accumulation 8 and zero workers until a source-only pilot selects feasible
@@ -407,8 +427,9 @@ After an authorized source-only GPU pilot passes and the selected settings are
 frozen, queue fresh F1→F2→F3→F4 with the same training arguments. Validate the
 batch and loader settings on the actual hardware using full 10 s dual-view
 inputs, real source batches and complete source-dev scoring/checkpoint reload.
-These hardware checks remain pending; synthetic CPU tests do not select a final
-batch or worker count.
+The original 10 s source/GPU preflight passed before training. After the
+owner-authorized stop and optimization, the updated code and each duration require
+a new source-dev/reload freeze. Synthetic tests alone cannot satisfy that gate.
 
 ```bash
 # Set these from the validated Part 2 pilot; no candidate is assumed here.
@@ -430,12 +451,75 @@ and other active users must still be checked before separately authorizing a run
 Single-seed summaries use point estimates and no across-seed SD (`null`); target
 bootstrap intervals remain conditional on the selected model.
 
+Historical owner update, 2026-10-09 (superseded by the 10 s-only decision below):
+stop/preserve the interrupted 10 s run, optimize, then
+run **LACF-4s F1→F4 first, followed by fresh LACF-10s F1→F4**. The duration
+argument defaults to 10; 4 uses `outputs/lacf4s/<fold>/1234/`. Use `--output-root`
+for a fresh 10 s directory when the default contains stopped runs. Never resume
+or overwrite those runs. Both initial arms use seed 1234 and the same effective
+batch; keep model, losses, sampling, precision, optimizer and selection fixed.
+
+Frozen encoders still execute for every random training crop. Source-development
+crops are centered and deterministic: `lacf/cache.py` stores their frozen WavLM
+pooled vectors and normalized CLAP audio vectors once under
+`outputs/lacf_frozen_dev_features/`. Every epoch recomputes adapter, relations,
+classifier and EER with current weights. Cache identity binds canonical records,
+duration, processors, encoder revisions, code and execution environment; run
+configs record cache hashes. No training crops, adapter outputs or scores are
+cached. Encoder and backend development batches remain one, preserving variable
+length WavLM normalization and BF16 scoring arithmetic. Checkpoint reload verifies
+frozen states before using these features.
+
+The optimized loop reuses exact CPU resampling kernels, removes repeated GPU
+Boolean scans/CPU score transfers and checks finite losses/gradients before
+updates. Unsupported NNPACK CPU acceleration is disabled once in parent/workers.
+Logs show timestamps, phase, batches/recordings, percentage, loss, audio/s and ETA.
+Read the live file in a terminal with `tail -f <run>/training.log`.
+
+Short source-only probes on H200-35C measured about 82→92 audio/s for the 10 s
+training loop and about 176 audio/s for 4 s at physical/effective batch 132.
+These measurements are bounded operational checks, not full scientific trials
+or a promise of epoch duration. The fixed-dev cache requires an initial encode
+pass; later epochs/folds reuse it. Full new source-dev/reload validation remains
+separate. CLAP repeat-pads even 4 s audio to its 10 s feature window, so compute
+will not scale exactly with physical duration.
+
+After a passed matching duration-specific freeze record, a 4 s queue uses:
+
+```bash
+LACF_SOURCE_VALIDATION_RECORD=/absolute/path/to/validation_4s/frozen_recipe.json \
+  bash scripts/lacf/train_folds.sh --segment-seconds 4 --seed 1234 \
+  --batch-size 132 --gradient-accumulation-steps 1 \
+  --num-workers 2 --eval-workers 4 --prefetch-factor 2 --confirm-cache-verified
+```
+
+The supplied `SOTA_Model_details.pdf` agrees with this duration comparison.
+Existing WavLM runs use random 4 s **training** and full-utterance native dev/test;
+matched 4 s source calibration and eventual test scoring are separate controls.
+Do not describe current native WavLM reports as matched-four-second evaluation.
+No target scoring is authorized by this training sequence.
+
+Latest owner decision, 2026-10-09: **stop 4 s work and run 10 s only**. The
+4 s arm is deferred and must not be scheduled automatically. Its interrupted
+source check and pilot/logs are preserved. Fresh optimized 10 s outputs use
+`outputs/lacf10s_optimized_20261009/`; the old two-epoch run remains separate.
+
+The completed full native-10 s source-dev/reload evidence is retained. A bounded
+regression loads that validation pilot solely to compare the optimized direct
+and cached outputs with saved source scores, validates canonical score membership,
+hashes and original reload agreement, and checks current longest-input updates.
+The new freeze record distinguishes reused full evidence from new bounded checks;
+it does not claim a full optimized preflight rerun. Final runs initialize fresh
+adapter/head, never that pilot. Fixed development features are built during the
+first development phase after epoch-1 training, then reused each epoch. That one
+encoder pass still takes hours; the two old full validation passes are not repeated.
+
 `ComponentConfig` explicitly controls prescribed relation groups and applicable
 semantic/consistency losses. Dimensions and unused frozen branches follow that
 configuration. A fusion module can be explicitly supplied with a declared
 dimension/configuration without changing the epoch loop. Defaults implement
-the primary model; no ablation launcher, FT4, duration variant or target exporter
-is provided in this change. Shared raw/transductive metrics and CI utilities are
+the primary model. The separate owner-approved 4 s duration arm uses
+`--segment-seconds 4`; no ablation launcher, FT4 or target exporter is provided. Shared raw/transductive metrics and CI utilities are
 unchanged; native LACF score export remains later work after source validation.
 
 Synthetic CPU checks only:
@@ -486,7 +570,7 @@ Bootstrap intervals resample target observations within each class only. Source
 thresholds, source normalization statistics, and full-target normalization
 statistics stay fixed. These intervals exclude training and calibration
 uncertainty. Final summaries require all four folds: families `wavlm_bs96`,
-`aasist` and initial `lacf` use seed 1234 only; other families retain their
+`aasist` and initial `lacf`/`lacf4s` use seed 1234 only; other families retain their
 declared seed plans.
 Single-seed summaries use `sample_std=null`, not zero.
 `--non-final --seeds ...` writes an explicitly exploratory summary instead.

@@ -34,12 +34,15 @@ if fold == os.environ.get('LACF_TEST_FAIL'):
     sys.exit(9)
 sources = {'f1':['asv2019','asv5','cfad'], 'f2':['asv2019','asv5','speechfake'],
            'f3':['asv2019','cfad','speechfake'], 'f4':['asv5','cfad','speechfake']}[fold]
-run = Path(os.environ['PROJECT_ROOT']) / 'outputs/lacf' / fold / '1234'
+seconds = int(tokens[tokens.index('--segment-seconds')+1]) if '--segment-seconds' in tokens else 10
+family = 'lacf4s' if seconds == 4 else 'lacf'
+output = Path(tokens[tokens.index('--output-root')+1]) if '--output-root' in tokens else Path(os.environ['PROJECT_ROOT']) / 'outputs' / family
+run = output / fold / '1234'
 run.mkdir(parents=True)
 checkpoint = run / 'best.pt'
 checkpoint.write_bytes(b'disposable synthetic checkpoint')
 digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-config = {'run_name':'lacf', 'fold':fold, 'seed':1234, 'final_seed_plan':[1234],
+config = {'run_name':family, 'segment_seconds':seconds, 'fold':fold, 'seed':1234, 'final_seed_plan':[1234],
           'sources':sources, 'precision':'bfloat16_mixed', 'sensitive_dtype':'float32',
           'trainable_parameters':661479, 'selected_epoch':1, 'selected_macro_source_dev_eer':.2,
           'selected_checkpoint_sha256':digest}
@@ -104,3 +107,21 @@ def test_queue_rejects_fold_override(queue_project):
     _, script, calls, env = queue_project
     result = subprocess.run(["bash", str(script), "--fold", "f3"], env=env, capture_output=True, text=True, timeout=15)
     assert result.returncode == 2 and not calls.exists()
+
+
+@pytest.mark.parametrize("custom_output", [False, True])
+def test_four_second_queue_preserves_native_ten_second_runs(queue_project, custom_output):
+    root, script, calls, env = queue_project
+    old = root / "outputs/lacf/f1/1234"
+    old.mkdir(parents=True)
+    (old / "preserved.pt").write_bytes(b"preserve stopped run")
+    settings = ["--segment-seconds", "4"]
+    output = root / "outputs" / "lacf4s"
+    if custom_output:
+        output = root / "fresh4s"
+        settings += ["--output-root", str(output)]
+    result = subprocess.run(["bash", str(script), *settings], env=env, capture_output=True, text=True, timeout=40)
+    assert result.returncode == 0, result.stderr
+    assert (old / "preserved.pt").read_bytes() == b"preserve stopped run"
+    assert (output / "f4/1234/training_complete.json").exists()
+    assert len(calls.read_text().splitlines()) == 4
