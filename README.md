@@ -61,6 +61,16 @@ storage changed. These completion records establish copy/membership integrity,
 not an all-file decoding check or a measured speedup. P2 external corpora are
 outside this cache job; acquisition and scientific evaluation gates still apply.
 
+SSH2 transfer update, 2026-10-10: all four native P1 partitions reached
+`/mnt/drive/audio-deepfake-cache` at 06:00 (UTC+2): 1,119,318 recordings,
+approximately 134 GB. Transfer evidence reports matching destination file
+presence and sizes. The source cache was SHA-256 verified; full destination
+content checksums were omitted by explicit owner decision, so same-size content
+corruption is not detected. Local evidence is under
+`docs/local/test_cache_transfer_20261010/` (ignored by Git). This transfer does
+not authorize evaluation. Held-out recordings remain excluded from training,
+recipe selection and tuning.
+
 ## WavLM-WA, one fold at a time
 
 The latest WavLM batch is **96**. New runs use `outputs/wavlm_bs96/<fold>/<seed>/`
@@ -257,9 +267,9 @@ The WavLM summary defaults to seed 1234 and requires all four completed/evaluate
 folds. It reports single-seed point estimates and an equal-weight four-fold mean;
 `sample_std` is `null`, not zero. Target-bootstrap intervals remain in each run's
 metrics report, but they do not measure variability across training seeds. A
-three-fold report is partial, not a complete four-fold result. AASIST also uses
-seed 1234 only under the owner's 2026-10-06 decision; remaining models retain
-their existing seed plans unless explicitly changed separately.
+three-fold report is partial, not a complete four-fold result. AASIST and initial
+LACF also use seed 1234 only under the owner's 2026-10-06 and 2026-10-08 decisions;
+remaining models retain their existing seed plans unless explicitly changed separately.
 
 ## AASIST: fixed baseline and source-only validation
 
@@ -285,14 +295,24 @@ On 2026-10-07, the owner authorized AASIST F1 training alongside test-audio
 caching and ongoing acquisition. A real source-only GPU feasibility check
 passed three batch-24 optimizer steps and a checkpoint-reload score check on
 six source-dev examples. Fresh F1 training then started in tmux `aasist-f1`,
-seed 1234; the pilot checkpoint is not used for final training. Complete
-source-development scoring and selected-checkpoint reload validation remain
-pending; this short check is not full validation or a completed experiment.
-Use 8 training workers, 4 dev workers and prefetch 2. These are initial loader
-settings, not a benchmarked optimum. Inspect actual logs under
+seed 1234; the pilot checkpoint is not used for final training. At that launch,
+complete source-development scoring and selected-checkpoint reload validation
+were still pending; the short check alone did not establish a completed experiment.
+Initial loader settings were 8 training workers, 4 dev workers and prefetch 2,
+not a benchmarked optimum. Inspect actual SSH1 logs under
 `outputs/aasist/f1/1234/` and local pilot records under
 `outputs/aasist_launch_20261007/`; dated launch observations are not live status.
 Preserve other GPU users and obtain authorization for competing work.
+
+SSH1-reported update, 2026-10-10: F1 finished at epoch 19 and the owner
+authorized fresh F2 training. F2 retains seed 1234, batch 24, FP32 and the same
+recipe. Its operational settings are 8 training workers, 8 dev workers,
+prefetch 2, and `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2`; source-dev batch remains 1.
+Launch settings and a bounded CPU loader comparison are recorded on SSH1 in
+`outputs/aasist_f2_launch_20261010/`. That comparison does not establish a GPU
+speedup. This supplied status has not been independently verified on SSH2;
+the F1 full-source scoring, selected-checkpoint reload and completion records
+must be inspected before claiming verified completion or authorizing evaluation.
 
 After activation and `export PYTHONPATH=src`, a single source-only fold is:
 
@@ -312,7 +332,8 @@ The queue refuses to launch while the existing batch-96 WavLM queue lock is held
 prevents duplicate AASIST queues, and stops on any training/logging failure or
 missing completion marker. It never launches target testing. Launch it manually
 after WavLM. The implementation did not itself authorize a launch; the owner
-separately authorized the F1 launch recorded above. No additional folds were queued.
+separately authorized the F1 launch and later the SSH1 F2 launch recorded above.
+These dated records do not establish live queue status or authorize further launches.
 **Owner decision, 2026-10-06: AASIST uses seed 1234 only across F1–F4.**
 Do not schedule seeds 2345/3456. This is a disclosed compute-budget adaptation
 to the paper's three-run reporting, not a claim of seed robustness. Existing
@@ -484,7 +505,8 @@ pass; later epochs/folds reuse it. Full new source-dev/reload validation remains
 separate. CLAP repeat-pads even 4 s audio to its 10 s feature window, so compute
 will not scale exactly with physical duration.
 
-After a passed matching duration-specific freeze record, a 4 s queue uses:
+Historical 4 s invocation, requiring a matching freeze record and renewed owner
+authorization; the later 10 s-only decision defers this queue:
 
 ```bash
 LACF_SOURCE_VALIDATION_RECORD=/absolute/path/to/validation_4s/frozen_recipe.json \
@@ -502,7 +524,13 @@ No target scoring is authorized by this training sequence.
 Latest owner decision, 2026-10-09: **stop 4 s work and run 10 s only**. The
 4 s arm is deferred and must not be scheduled automatically. Its interrupted
 source check and pilot/logs are preserved. Fresh optimized 10 s outputs use
-`outputs/lacf10s_optimized_20261009/`; the old two-epoch run remains separate.
+`outputs/lacf10s_optimized_20261009/<fold>/1234/`, with frozen physical/effective
+batch 132, accumulation 1, train/dev workers 2/4 and prefetch 2. This differs
+from the trainer's unchanged default output root and loader settings above.
+On 2026-10-10 the owner authorized deletion of the stopped two-epoch
+`outputs/lacf/` run only; its small metadata/logs were archived locally under
+`docs/local/lacf_cleanup_20261010T140252/`. Active optimized outputs and frozen
+development features were preserved.
 
 The completed full native-10 s source-dev/reload evidence is retained. A bounded
 regression loads that validation pilot solely to compare the optimized direct
@@ -518,7 +546,7 @@ encoder pass still takes hours; the two old full validation passes are not repea
 semantic/consistency losses. Dimensions and unused frozen branches follow that
 configuration. A fusion module can be explicitly supplied with a declared
 dimension/configuration without changing the epoch loop. Defaults implement
-the primary model. The separate owner-approved 4 s duration arm uses
+the primary model. The deferred 4 s duration arm uses
 `--segment-seconds 4`; no ablation launcher, FT4 or target exporter is provided. Shared raw/transductive metrics and CI utilities are
 unchanged; native LACF score export remains later work after source validation.
 
@@ -552,9 +580,10 @@ domain uses its own mean/std and the target uses its own **unlabeled** score
 mean/std. This branch is transductive, not strict zero-shot.
 
 The common metrics are ready for all models. WavLM-WA and AASIST now have
-training and score-export implementations. AASIST still needs
-complete source-only real-data development/reload validation; its short GPU
-feasibility check passed on 2026-10-07. Other SOTA detectors need model-specific code.
+training and score-export implementations. AASIST's short GPU feasibility check
+passed on 2026-10-07; the later SSH1 completion report above does not replace
+inspection of full source-development/reload evidence. Other SOTA detectors
+need model-specific code.
 
 Both evaluators validate every score ID and label against the canonical split
 reader. Reordered rows are accepted and sorted by ID for reproducible bootstrap
