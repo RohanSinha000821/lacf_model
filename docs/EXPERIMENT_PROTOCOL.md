@@ -1,5 +1,42 @@
 # Cross-domain experiment protocol (v4)
 
+## Planned LACF F2 boundary and preliminary comparison (2026-10-12)
+
+Latest owner clarification: this is a shared plan, not an instruction to implement
+the exporter or start evaluation now. The owner will arrange the WavLM artifact
+copy from SSH1. The queue advancement hold was already applied; F2 continues
+normally and F3/F4 remain held. Actual evaluation execution needs a later owner
+instruction. The proposed independent-run policy below describes the plan,
+not current authorization to open targets.
+
+Finish the current optimized native-10 s, seed-1234 LACF F2 run using its
+unchanged source-only selection, patience and selected-checkpoint reload.
+Hold automatic advancement to F3/F4. After F2 completes and both runs are
+verified, the proposed next step is native P1 evaluation of the frozen LACF F1/F2
+checkpoints before the wider comparison is complete. Compare matching completed
+WavLM batch-96, seed-1234 folds: F1 on SpeechFake test and F2 on CFAD clean unseen
+test. If subsequently instructed, this would revise the earlier target-access
+timing for these two completed-run evaluations only. It does not authorize FT4,
+ablations, external tests, duration controls or further training changes.
+
+Keep canonical membership, spoof-score direction, source-only raw and normalized
+threshold calibration, prespecified transductive reporting and confidence
+intervals. Native LACF uses the centered common interval of at most 10 s fixed
+below; native WavLM retains full-utterance development/test preprocessing.
+Disclose those input and encoder-training differences: this compares complete
+systems, not an isolated test of freezing or duration. Do not choose evaluation
+crops/settings using test scores or use historical WavLM F1 numbers as a
+substitute for the matching current baseline runs.
+
+Freeze each evaluated checkpoint/configuration and record independent-run
+evaluation authorization without claiming a comparison-wide freeze. Native
+LACF score export still requires implementation and synthetic/source validation
+before target inference; authorization alone does not establish readiness.
+Report separate fold results and identify any F1/F2 average as preliminary,
+not a completed four-fold result. Test feedback may describe the frozen models;
+changes prompted by it are exploratory, cannot silently replace principal rows,
+and require independent confirmatory data for new generalization claims.
+
 ## Owner-approved independent-fold evaluation (2026-10-06)
 
 The owner explicitly authorizes evaluating completed WavLM batch-96 F1/F2/F3
@@ -175,7 +212,7 @@ Keep the WavLM semantic loss at its common selected value for A5–A9 where defi
 
 ### 4. Prevent target feedback from crossing model boundaries
 
-Original 2026-10-02 precaution: before inspecting any method's first held-out target result, freeze the comparison-wide protocol, principal result rows, LACF architecture/prompt bank, A0–A10 hypotheses, duration-control rules, tuning budgets, and source-validated final recipes for all principal methods. The owner revised target-access timing for completed WavLM folds on 2026-10-06, as recorded above. All no-target-guided-tuning rules remain in force; the wider freeze is not represented as complete.
+Original 2026-10-02 precaution: before inspecting any method's first held-out target result, freeze the comparison-wide protocol, principal result rows, LACF architecture/prompt bank, A0–A10 hypotheses, duration-control rules, tuning budgets, and source-validated final recipes for all principal methods. The owner revised target-access timing for completed WavLM folds on 2026-10-06 and completed SOTA runs on 2026-10-12. The LACF F1/F2 comparison described above remains a proposal pending an execution instruction. All no-target-guided-tuning rules remain in force; the wider freeze is not represented as complete.
 
 Freeze these eight concepts and their ordering:
 

@@ -223,3 +223,15 @@ timing, not architecture, published-recipe adaptations, source-only selection,
 calibration or metrics. No target results may inform any model's tuning/design.
 Earlier per-family access restrictions are historical; reference documents do
 not override this later owner decision.
+
+Owner plan, 2026-10-12: stop the LACF sequence after normal, verified F2
+completion and hold F3/F4. The owner clarified this is planning only; SSH1
+artifact copying will be arranged separately. No exporter implementation or
+evaluation launch is authorized by this plan alone. Native P1 evaluation of
+frozen F1/F2 and comparison with matching completed WavLM batch-96 folds are proposed as a preliminary
+two-fold study. Native input policies differ (LACF centered up-to-10 s;
+WavLM full-utterance dev/test), and frozen versus fine-tuned encoders are part
+of the system comparison. This does not isolate either factor or establish a
+completed four-fold comparison. Native LACF score export still needs validated
+implementation. Target-informed revisions are exploratory and require independent
+confirmatory data for new generalization claims; source calibration remains fixed.

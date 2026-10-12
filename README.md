@@ -547,6 +547,21 @@ adapter/head, never that pilot. Fixed development features are built during the
 first development phase after epoch-1 training, then reused each epoch. That one
 encoder pass still takes hours; the two old full validation passes are not repeated.
 
+Owner plan, 2026-10-12: finish the current F2 run normally and hold F3/F4.
+The owner clarified this is a shared plan only and will arrange SSH1 artifact
+copying. The queue advancement hold is already applied; do not infer authorization
+to implement the exporter or launch evaluation from the plan alone.
+The proposed next step after verified F2 completion is to evaluate frozen native
+P1 LACF F1/F2 and compare matching completed WavLM batch-96, seed-1234 folds: F1 SpeechFake test,
+F2 CFAD clean unseen test. This is a preliminary two-fold comparison with each
+model's native preprocessing, not a completed four-fold result or an isolated
+freezing/duration comparison. The protocol records the narrower evaluation
+plan and requires unchanged source calibration and confidence intervals.
+Native LACF score export still needs implementation/validation, and the matching
+WavLM artifacts must be available. No target evaluation has started under this
+decision. Target-informed changes must remain exploratory rather than replace
+the frozen principal models.
+
 `ComponentConfig` explicitly controls prescribed relation groups and applicable
 semantic/consistency losses. Dimensions and unused frozen branches follow that
 configuration. A fusion module can be explicitly supplied with a declared
