@@ -249,12 +249,18 @@ def synthetic_evaluation(tmp_path, monkeypatch):
     return directory, opened, checkpoint, completion
 
 
-def test_score_export_to_common_report_and_reuse_checks(synthetic_evaluation):
+@pytest.mark.parametrize("confirmation", [None, "--confirm-protocol-frozen", "--confirm-run-frozen"])
+def test_score_export_to_common_report_and_reuse_checks(synthetic_evaluation, monkeypatch, confirmation):
+    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1", *([confirmation] if confirmation else []),
+                                     "--bootstrap-resamples", "8"])
     directory, opened, _, _ = synthetic_evaluation
     evaluate.main()
     assert opened == [(domain, "dev") for domain in FOLDS["f1"]["sources"]] + [("speechfake", "test")]
     report = json.loads((directory / "metrics.json").read_text())
     assert report["model"] == "aasist" and report["target"]["eer"] == 0.0
+    assert report["comparison_wide_freeze_confirmed_by_operator"] is False
+    assert report["completed_run_source_validation_required"] is True
+    assert report["target_access_policy"] == "independent_completed_runs_owner_2026-10-12"
     assert report["unlabeled_zscore_transfer"]["transductive"] is True
     assert report["confidence_intervals"]["source_thresholds_fixed_within_resamples"] is True
     manifest = json.loads((directory / "score_manifest.json").read_text())
@@ -285,7 +291,7 @@ def test_wrong_checkpoint_rejected(synthetic_evaluation, key, value):
         evaluate.verify_checkpoint(checkpoint, completion, "f1", 1234, "aasist")
 
 
-def test_target_evaluation_requires_explicit_freeze_confirmation(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1"])
-    with pytest.raises(SystemExit):
-        evaluate.parse_args()
+@pytest.mark.parametrize("fold", ["f1", "f2", "f3", "f4"])
+def test_completed_fold_evaluation_does_not_require_global_confirmation(monkeypatch, fold):
+    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", fold])
+    assert evaluate.parse_args().fold == fold

@@ -215,3 +215,11 @@ frozen-feature extraction is still a full pass, but is performed after the first
 training epoch, rather than rerunning both old validation passes before training.
 All approved numerical choices and source-only checkpoint selection stay fixed;
 no target result informed this scheduling change.
+
+
+Owner evaluation-timing decision, 2026-10-12: removed comparison-wide freeze
+as a prerequisite for all completed SOTA evaluations. This changes operational
+timing, not architecture, published-recipe adaptations, source-only selection,
+calibration or metrics. No target results may inform any model's tuning/design.
+Earlier per-family access restrictions are historical; reference documents do
+not override this later owner decision.

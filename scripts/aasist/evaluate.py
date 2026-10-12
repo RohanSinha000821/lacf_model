@@ -82,12 +82,12 @@ def parse_args():
     parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--bootstrap-resamples", type=int, default=1000)
     parser.add_argument("--confirm-protocol-frozen", action="store_true",
-                        help="Explicitly confirm the comparison-wide freeze BEFORE any target results")
+                        help="Deprecated compatibility flag; no longer required")
+    parser.add_argument("--confirm-run-frozen", action="store_true",
+                        help="Deprecated compatibility flag; completed runs may be evaluated independently")
     args = parser.parse_args()
     if min(args.seed, args.num_workers, args.bootstrap_resamples) < 0 or args.prefetch_factor < 1:
         parser.error("Seed/workers/resamples must be nonnegative and prefetch positive")
-    if not args.confirm_protocol_frozen:
-        parser.error("Target evaluation waits for the comparison-wide freeze; confirmation is required")
     return args
 
 
@@ -104,6 +104,8 @@ def main():
     verify_checkpoint(checkpoint, completion, args.fold, args.seed, args.run_name)
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for AASIST scoring")
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     device = torch.device("cuda")
     model = AASIST()
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -132,7 +134,11 @@ def main():
         "checkpoint_sha256": digest, "checkpoint_epoch": completion["best_epoch"],
         "score_sha256": dict(manifest["score_sha256"]), "evaluator_sha256": checkpoint_digest(Path(__file__)),
         "source_data_root": str(args.source_data_root), "target_data_root": str(args.target_data_root),
-        "comparison_wide_freeze_confirmed_by_operator": True,
+        "comparison_wide_freeze_confirmed_by_operator": False,
+        "completed_run_source_validation_required": True,
+        "target_access_policy": "independent_completed_runs_owner_2026-10-12",
+        "num_workers": args.num_workers, "prefetch_factor": args.prefetch_factor,
+        "eval_batch_size": 1, "cudnn_deterministic": True, "cudnn_benchmark": False,
         "precision": "float32", "input_policy": "16kHz_first_64600_repeat_if_short",
     })
     temporary = run_dir / "metrics.json.tmp"

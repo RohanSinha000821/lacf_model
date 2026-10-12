@@ -517,3 +517,25 @@ backend scores thereafter. Completion still requires the full per-source scores,
 strict macro source-EER checkpoint rule and selected-checkpoint reload. No byte
 checksum or canonical decode scan is repeated. No 4 s, target evaluation, FT4,
 ablations or failed-fold restart is authorized by this change.
+
+
+## Current target-access policy (owner decision, 2026-10-12)
+
+Completed SOTA runs may be evaluated independently. The owner removed the
+comparison-wide freeze prerequisite for all SOTA models, superseding earlier
+WavLM-only and AASIST-F1-only exceptions and older mandatory confirmation
+instructions. This is permission to evaluate authorized completed runs, not
+permission to launch all folds or additional protocols automatically.
+
+Keep completion/checkpoint identity, source-only model/recipe selection,
+source-dev reload verification and calibration, canonical target membership,
+metrics and confidence intervals unchanged. Target results must never guide
+any model's architecture, prompts, recipe or tuning. P2's documented source-only
+checkpoint selection record and explicit native score-export permission remain
+required; P2/P3/P4 have not been launched by this policy change.
+
+Evaluation commands no longer need `--confirm-protocol-frozen` or
+`--confirm-run-frozen`. The flags remain accepted only for old command
+compatibility and do not assert a completed comparison-wide freeze. New reports
+record `comparison_wide_freeze_confirmed_by_operator=false` and the independent
+completed-run access policy. Existing valid metrics/provenance are preserved.

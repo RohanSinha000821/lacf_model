@@ -132,9 +132,9 @@ def main() -> None:
     parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--bootstrap-resamples", type=int, default=1000)
     parser.add_argument("--confirm-protocol-frozen", action="store_true",
-                        help="Confirm the comparison-wide freeze before opening any held-out target")
+                        help="Deprecated compatibility flag; no longer required")
     parser.add_argument("--confirm-run-frozen", action="store_true",
-                        help="Owner-approved independent completed-fold evaluation; no target-guided tuning")
+                        help="Deprecated compatibility flag; no longer required")
     parser.add_argument("--gpu-memory-limit-gib", type=float,
                         help="Optional PyTorch allocator ceiling while sharing the GPU")
     parser.add_argument("--adopt-legacy-partial", action="store_true",
@@ -142,8 +142,6 @@ def main() -> None:
     args = parser.parse_args()
     if args.num_workers < 0 or args.prefetch_factor < 1 or args.bootstrap_resamples < 0 or args.seed < 0:
         parser.error("Workers/resamples/seed must be non-negative and prefetch factor positive")
-    if not (args.confirm_protocol_frozen or args.confirm_run_frozen):
-        parser.error("Confirm the comparison-wide freeze or the owner-approved completed-run freeze")
     if args.gpu_memory_limit_gib is not None and (not math.isfinite(args.gpu_memory_limit_gib) or args.gpu_memory_limit_gib <= 0):
         parser.error("GPU allocator limit must be finite and positive")
 
@@ -212,9 +210,9 @@ def main() -> None:
         "target_data_root": str(args.target_data_root),
         "score_sha256": dict(manifest["score_sha256"]),
         "evaluator_sha256": checkpoint_digest(Path(__file__)),
-        "comparison_wide_freeze_confirmed_by_operator": args.confirm_protocol_frozen,
-        "completed_run_freeze_confirmed_by_operator": args.confirm_protocol_frozen or args.confirm_run_frozen,
-        "target_access_policy": "comparison_wide_freeze" if args.confirm_protocol_frozen else "owner_approved_independent_completed_fold_2026-10-06",
+        "comparison_wide_freeze_confirmed_by_operator": False,
+        "completed_run_source_validation_required": True,
+        "target_access_policy": "independent_completed_runs_owner_2026-10-12",
         "gpu_allocator_limit_gib": args.gpu_memory_limit_gib,
     })
     temporary = run_dir / "metrics.json.tmp"

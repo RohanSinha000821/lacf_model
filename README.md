@@ -1,5 +1,10 @@
 # Audio deepfake detection: LODO runs
 
+Current owner policy (2026-10-12): completed SOTA runs may be evaluated
+independently; comparison-wide freeze is not required. Earlier confirmation
+examples remain compatible, but the flags are optional. Preserve source-only
+selection/calibration and prohibit target-guided tuning across all models.
+
 The project owner's main LACF plan and all supplied supplementary plans, dataset
 papers and SOTA papers are organized locally under `references/`. Start with
 [references/INDEX.md](references/INDEX.md) for the document map and authority
@@ -629,3 +634,17 @@ Run the documented model and data commands under `scripts/`. The generated
 package-level greeting command has been removed; package initializers remain
 for imports. Training, evaluation, recovery and synthetic-test files are retained
 because they support the current study and future detectors.
+
+
+Current evaluation policy, 2026-10-12: completed SOTA runs may be tested
+independently after completion/checkpoint and source-dev verification. No
+comparison-wide confirmation is required; older confirmation flags are
+optional compatibility arguments. No target-guided tuning is permitted.
+The owner authorized AASIST F1 testing alongside F2 training. After activation
+and `export PYTHONPATH=src`, its command is:
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -u scripts/aasist/evaluate.py --fold f1 --seed 1234 --run-name aasist --source-data-root /mnt/drive/audio-deepfake-cache --target-data-root /mnt/drive/audio-deepfake-cache --num-workers 8 --prefetch-factor 2 --bootstrap-resamples 1000
+```
+
+Other folds/protocols are not automatically launched by this policy change.

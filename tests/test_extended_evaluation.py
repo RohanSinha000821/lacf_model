@@ -184,7 +184,7 @@ def test_paired_label_conflict_rejected(calibration):
 
 
 @pytest.mark.parametrize("extra", [[], ["--confirm-protocol-frozen"]])
-def test_p2_requires_freeze_and_single_selection(monkeypatch, extra):
+def test_p2_requires_single_source_only_selection(monkeypatch, extra):
     monkeypatch.setattr(sys, "argv", ["evaluate_extended.py", "--protocol", "p2", "--dataset", "asv2021_df", "--run-dir", "outputs/wavlm/f1/1234", *extra])
     with pytest.raises(SystemExit):
         extended.parse_args()
@@ -333,11 +333,14 @@ def test_native_export_preserves_order_and_orientation(monkeypatch, kind):
     assert rows == [("a", "external", 1, 3.0), ("b", "external", 0, -5.0)]
 
 
-def test_wavlm_p1_requires_freeze(monkeypatch):
+def test_wavlm_p1_without_confirmation_still_requires_completed_run(monkeypatch):
     from scripts.wavlm import evaluate
     monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1"])
-    monkeypatch.setattr(evaluate, "verify_completed_run", lambda *a: pytest.fail("Freeze must be checked before checkpoints/targets"))
-    with pytest.raises(SystemExit):
+    def incomplete(*args):
+        raise ValueError("Run is incomplete")
+    monkeypatch.setattr(evaluate, "verify_completed_run", incomplete)
+    monkeypatch.setattr(evaluate, "score_split", lambda *a, **kw: pytest.fail("Incomplete run must not score targets"))
+    with pytest.raises(ValueError, match="Run is incomplete"):
         evaluate.main()
 
 
@@ -352,3 +355,8 @@ def test_p2_selection_freezes_source_score_bytes_before_target(registered_run, m
           "--selection-record", str(path), "--confirm-protocol-frozen"])
     with pytest.raises(ValueError, match="source calibration scores differ"):
         extended.main()
+
+
+def test_extended_evaluation_without_global_confirmation(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["evaluate_extended.py", "--protocol", "p3", "--dataset", "speechfake", "--run-dir", "outputs/aasist/f1/1234"])
+    assert extended.parse_args().protocol == "p3"

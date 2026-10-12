@@ -384,7 +384,7 @@ def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch
         return [0, 0, 1, 1], ([2, 1, -1, -2] if case == "source_macro" else [-2, -1, 1, 2])
 
     monkeypatch.setenv("PROJECT_ROOT", str(directory.parents[3]))
-    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1", "--seed", "1234", "--bootstrap-resamples", "5", "--confirm-run-frozen" if case == "independent" else "--confirm-protocol-frozen"])
+    monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", "f1", "--seed", "1234", "--bootstrap-resamples", "5", *(["--confirm-protocol-frozen"] if case != "independent" else [])])
     monkeypatch.setattr(wavlm.torch, "load", lambda *args, **kwargs: checkpoint)
     monkeypatch.setattr(wavlm.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(wavlm, "WavLMWA", lambda **kwargs: FakeModel())
@@ -395,8 +395,8 @@ def test_wavlm_main_target_gate_without_gpu_inference(synthetic_run, monkeypatch
         report = json.loads((directory / "metrics.json").read_text())
         assert report["checkpoint_epoch"] == 2
         assert report["seed"] == 1234
-        assert report["comparison_wide_freeze_confirmed_by_operator"] is (case != "independent")
-        assert report["completed_run_freeze_confirmed_by_operator"] is True
+        assert report["comparison_wide_freeze_confirmed_by_operator"] is False
+        assert report["completed_run_source_validation_required"] is True
     else:
         with pytest.raises((ValueError, FileNotFoundError)):
             wavlm.main()

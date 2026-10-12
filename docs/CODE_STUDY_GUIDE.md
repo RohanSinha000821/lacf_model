@@ -519,3 +519,12 @@ records this validation scope. Fixed source-dev features are built after the fir
 training epoch, during its development phase, then reused. Pilot weights are
 validation-only and do not initialize final training. Existing outputs remain
 preserved and no resume is introduced.
+
+
+Current owner evaluation policy (2026-10-12): WavLM, AASIST and the shared
+P2-P4 evaluator no longer require comparison-wide confirmation. Old flags are
+accepted for compatibility only. Completed-run/checkpoint binding and source
+selection/calibration checks remain before target access; P2 still requires its
+source-only checkpoint selection record. Native AASIST scoring remains batch
+one, FP32 with deterministic cuDNN. The currently running F1 evaluator started
+under the earlier F1-specific authorization and is preserved without restart.

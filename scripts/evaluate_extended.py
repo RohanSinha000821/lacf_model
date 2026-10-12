@@ -160,7 +160,7 @@ def parse_args():
     parser.add_argument("--selection-record", type=Path, help="P2: one frozen source-selected deployment checkpoint per model/seed")
     parser.add_argument("--write-selection-record", type=Path, help="Source-only mode: write record and exit before opening targets")
     parser.add_argument("--selection-reason", help="Source-only reason/rule for choosing this single P2 fold checkpoint")
-    parser.add_argument("--confirm-protocol-frozen", action="store_true")
+    parser.add_argument("--confirm-protocol-frozen", action="store_true", help="Deprecated compatibility flag; no longer required")
     parser.add_argument("--export-scores", action="store_true", help="Explicit GPU inference permission; default only reads verified score files")
     parser.add_argument("--model", choices=("wavlm", "aasist"), help="Required only for native score export")
     parser.add_argument("--num-workers", type=int, default=4)
@@ -171,8 +171,6 @@ def parse_args():
                "p3": {"speechfake", "asv2019", "asv5"}, "p4": {"cfad", "asv5"}}
     if args.dataset not in allowed[args.protocol]:
         parser.error("Dataset is not part of this evaluation protocol")
-    if not args.confirm_protocol_frozen:
-        parser.error("Comparison-wide freeze confirmation is required; do not run while study recipes remain unfrozen")
     if args.export_scores and not args.model:
         parser.error("--export-scores requires --model")
     if args.protocol == "p2" and not (args.selection_record or args.write_selection_record):
@@ -211,7 +209,7 @@ def main():
         write_json_once(args.write_selection_record, {**identity, "source_only_selection_reason": args.selection_reason,
                         "target_results_used": False, "source_dev": calibration["source_dev"],
                         "source_score_sha256": source_hashes,
-                        "comparison_wide_freeze_confirmed_by_operator": True})
+                        "comparison_wide_freeze_confirmed_by_operator": False, "target_access_policy": "independent_completed_runs_owner_2026-10-12"})
         print(f"Wrote source-only P2 selection; no target opened: {args.write_selection_record}")
         return
     print("Frozen checkpoint and source-only calibration verified; opening evaluation metadata", flush=True)
@@ -258,7 +256,7 @@ def main():
             write_json_once(manifest_path, {"binding": binding, "score_sha256": checkpoint_digest(score_path),
                                            "model_adapter": args.model, "evaluation_batch_size": 1})
     scores = ordered_scores(score_path, args.dataset, examples)
-    report = {**binding, "score_sha256": checkpoint_digest(score_path), "comparison_wide_freeze_confirmed_by_operator": True,
+    report = {**binding, "score_sha256": checkpoint_digest(score_path), "comparison_wide_freeze_confirmed_by_operator": False, "target_access_policy": "independent_completed_runs_owner_2026-10-12",
               "label_convention": "0=bona_fide,1=spoof; higher_score=spoof", "metric_scale": "fractions_0_to_1",
               "evaluation_code_sha256": {name: checkpoint_digest(Path(__file__).parents[1] / "src/audio_deepfake_detection" / name)
                                           for name in ("analysis.py", "evaluation_data.py", "metrics.py")},
