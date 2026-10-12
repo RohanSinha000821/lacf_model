@@ -45,3 +45,26 @@ def test_partial_then_complete_summary_preserves_first_three(tmp_path):
 def test_partial_summary_rejects_invalid_fold_selection(tmp_path, folds):
     with pytest.raises(ValueError, match="distinct valid folds"):
         summarize(tmp_path, "wavlm_bs96", non_final=True, folds=folds)
+
+
+def test_custom_lacf_folder_keeps_single_seed_policy_and_partial_fold_status(tmp_path):
+    folder = "lacf10s_optimized_20261009"
+    template = evaluate_transfer({"source": ([0, 0, 1, 1], [-2, -1, 1, 2])},
+                                [0, 0, 1, 1], [-2, -1, 1, 2], bootstrap_resamples=3)
+    for fold_name in ("f1", "f2"):
+        fold = FOLDS[fold_name]
+        report = copy.deepcopy(template)
+        report.update(model=folder, model_family="lacf", fold=fold_name, seed=1234,
+                      sources=list(fold["sources"]), target_domain=fold["target"], target_split=fold["target_split"])
+        directory = tmp_path / folder / fold_name / "1234"
+        directory.mkdir(parents=True)
+        (directory / "metrics.json").write_text(json.dumps(report))
+    result = summarize(tmp_path, folder, family="lacf", non_final=True, folds=("f1", "f2"))
+    assert result["seeds"] == [1234] and result["seed_policy"] == "single_seed_compute_budget"
+    assert result["model_family"] == "lacf" and result["model"] == folder
+    assert result["four_fold_complete"] is False and result["equal_weight_four_fold_mean"] is None
+    assert result["per_fold"]["f1"]["target.eer"]["sample_std"] is None
+    with pytest.raises(ValueError, match="all four folds"):
+        summarize(tmp_path, folder, family="lacf", folds=("f1", "f2"))
+    with pytest.raises(ValueError, match="model family"):
+        summarize(tmp_path, folder, family="aasist", non_final=True, folds=("f1", "f2"))

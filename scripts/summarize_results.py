@@ -31,8 +31,9 @@ def flat_metrics(report: dict) -> dict[str, float]:
     return values
 
 
-def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, non_final=False, folds=None) -> dict:
-    required_seeds = final_seeds_for(model)
+def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, non_final=False, folds=None, family=None) -> dict:
+    family = family or model
+    required_seeds = final_seeds_for(family)
     if seeds is None:
         seeds = required_seeds
     if not non_final and seeds != required_seeds:
@@ -61,6 +62,8 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
                 raise ValueError(f"Missing or wrong seed in {path}")
             if report.get("model") != model:
                 raise ValueError(f"Missing or wrong model in {path}")
+            if report.get("model_family", model) != family:
+                raise ValueError(f"Missing or wrong model family in {path}")
             ci = report.get("confidence_intervals", {})
             if not ci.get("intervals") or ci.get("resamples", 0) <= 0:
                 raise ValueError(f"Final run lacks confidence intervals: {path}")
@@ -103,6 +106,7 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
     }
     return {
         "model": model,
+        "model_family": family,
         "seeds": list(seeds),
         "training_seed_count": len(seeds),
         "across_seed_variability_estimated": len(seeds) > 1,
@@ -121,6 +125,7 @@ def summarize(root: Path, model: str, seeds: tuple[int, ...] | None = None, *, n
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize four-fold LODO results using the model's declared seed policy")
     parser.add_argument("--model", required=True)
+    parser.add_argument("--family", help="Scientific family when --model names a custom output folder, e.g. lacf")
     parser.add_argument("--root", type=Path, default=Path("outputs"))
     parser.add_argument("--seeds", type=int, nargs="+", help="Defaults to seed 1234 for wavlm_bs96/aasist/lacf/lacf4s; three protocol seeds for other models")
     parser.add_argument("--non-final", action="store_true", help="Allow exploratory seed lists; write exploratory_summary.json")
@@ -134,7 +139,8 @@ def main() -> None:
     output = args.root / args.model / filename
     if output.exists():
         raise FileExistsError(f"Summary already exists; refusing to overwrite: {output}")
-    summary = summarize(args.root, args.model, tuple(args.seeds) if args.seeds is not None else None, non_final=args.non_final, folds=args.folds)
+    summary = summarize(args.root, args.model, tuple(args.seeds) if args.seeds is not None else None,
+                        non_final=args.non_final, folds=args.folds, family=args.family)
     output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Saved {output}")
 

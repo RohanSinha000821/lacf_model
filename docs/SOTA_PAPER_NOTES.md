@@ -232,6 +232,24 @@ frozen F1/F2 and comparison with matching completed WavLM batch-96 folds are pro
 two-fold study. Native input policies differ (LACF centered up-to-10 s;
 WavLM full-utterance dev/test), and frozen versus fine-tuned encoders are part
 of the system comparison. This does not isolate either factor or establish a
-completed four-fold comparison. Native LACF score export still needs validated
-implementation. Target-informed revisions are exploratory and require independent
-confirmatory data for new generalization claims; source calibration remains fixed.
+completed four-fold comparison. The later owner instruction authorizes source-only
+preparation and the minimal native exporter. These are implemented and their
+F1/F2 source checks have passed; target evaluation remains deferred.
+Target-informed revisions are exploratory and require independent confirmatory
+data for new generalization claims; source calibration remains fixed.
+
+The padding review identified native WavLM Base+ behavior: its first GroupNorm
+includes right-zero-padded time steps before the attention mask is applied.
+Masked pooling does not undo this dependence. Measure feature/score changes on
+source recordings before deciding whether a revised training recipe is needed;
+the mechanism alone does not establish an EER cause or invalidate completed runs.
+An evaluation/reporting fix needs no retraining. Changing encoder normalization
+or training features would require fresh runs for consistent revised F1/F2 rows;
+preserve the original checkpoints and recipe when evaluating the existing system.
+
+Later owner instruction, 2026-10-12: native P1 evaluation of the preserved F1/F2
+LACF models is now authorized after the passed preparation. F1 SpeechFake test
+then F2 CFAD clean unseen test run sequentially from the local cache, with the
+original normalization/precision/scoring recipe. This permits evaluation only;
+no target feedback may select a feature correction, architecture or training
+setting. F3/F4 remain held and a two-fold comparison remains preliminary.

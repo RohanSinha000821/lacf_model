@@ -1,6 +1,7 @@
 import copy
 import json
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,69 @@ from audio_deepfake_detection.protocol import (
 from scripts.evaluate_scores import evaluate_run
 from scripts.summarize_results import summarize
 from scripts.wavlm import evaluate as wavlm
+from scripts.lacf import evaluate as lacf
+
+
+@pytest.mark.parametrize("case", ["source_only", "missing_validation", "source_mismatch", "stale_checkpoint", "stale_scores", "stale_scorer"])
+def test_lacf_source_preparation_never_opens_target_before_validation(synthetic_run, monkeypatch, case):
+    directory, source, _, opened, completion = synthetic_run
+    opened.clear()
+    config = {"run_name": "lacf", "input_policy": {"crop": "centered", "seconds": 10},
+              "precision": "bfloat16_mixed", "wavlm_revision": "w", "clap_revision": "c",
+              "segment_seconds": 10, "components": {"wavlm_enabled": True, "clap_audio_enabled": True},
+              "source_sha256": {}, "development_feature_caches": {
+                  domain: {"path": "synthetic", "sha256": "fixture"} for domain in FOLDS["f1"]["sources"]}}
+    config["input_policy"].update(segment_seconds=10)
+    monkeypatch.setattr(lacf.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(lacf.torch.cuda, "is_bf16_supported", lambda **kwargs: True)
+    digest = checkpoint_digest(directory / "best.pt")
+    completed = {**completion, "best_checkpoint_sha256": digest,
+                 "reloaded_dev_eers": dict.fromkeys(FOLDS["f1"]["sources"], 0.0)}
+    monkeypatch.setattr(lacf, "load_completed_model", lambda *args: (None, None, config, completed))
+    monkeypatch.setattr(lacf, "read_dataset", protocol.read_dataset)
+    monkeypatch.setattr(lacf, "load_development_cache", lambda *args: SimpleNamespace(sha256="fixture"))
+    if case == "source_mismatch":
+        path = directory / "source_dev_cfad.csv"
+        path.write_text("utterance_id,dataset,label,raw_score\n" + "".join(
+            f"dev/{i}.wav,cfad,{label},{score}\n"
+            for i, (label, score) in enumerate(zip([0, 0, 1, 1], [2, 1, -1, -2]))))
+        manifest = load_score_manifest(directory, "f1", 1234, digest)
+        manifest["score_sha256"][path.name] = checkpoint_digest(path)
+        save_score_manifest(directory, manifest)
+    arguments = ["evaluate.py", "--run-dir", str(directory), "--fold", "f1", "--data-root", str(source)]
+    if case in ("stale_checkpoint", "stale_scores", "stale_scorer"):
+        monkeypatch.setattr(sys, "argv", arguments)
+        lacf.main()
+        opened.clear()
+        manifest = load_score_manifest(directory, "f1", 1234, digest)
+        validation = {"status": "passed", "checkpoint_sha256": digest, "inference": manifest["inference"],
+            "source_sha256": {}, "source_cache_sha256": dict.fromkeys(FOLDS["f1"]["sources"], "fixture"),
+            "direct_cache_score_bit_exact": True, "scorer_sha256": lacf.scorer_digests(), "score_sha256": {
+                f"source_dev_{domain}.csv": manifest["score_sha256"][f"source_dev_{domain}.csv"]
+                for domain in FOLDS["f1"]["sources"]}}
+        if case == "stale_checkpoint":
+            validation["checkpoint_sha256"] = "wrong"
+        elif case == "stale_scores":
+            validation["score_sha256"]["source_dev_asv2019.csv"] = "wrong"
+        else:
+            validation["scorer_sha256"]["exporter"] = "wrong"
+        (directory / "source_validation.json").write_text(json.dumps(validation))
+    if case != "source_only":
+        arguments.append("--evaluate-target")
+    monkeypatch.setattr(sys, "argv", arguments)
+    if case == "missing_validation":
+        with pytest.raises(FileNotFoundError, match="source_validation"):
+            lacf.main()
+    elif case == "source_mismatch":
+        with pytest.raises(ValueError, match="Source-dev macro EER"):
+            lacf.main()
+    elif case in ("stale_checkpoint", "stale_scores", "stale_scorer"):
+        with pytest.raises(ValueError, match="Fresh-process source/cache"):
+            lacf.main()
+    else:
+        lacf.main()
+    assert opened == [(domain, "dev") for domain in FOLDS["f1"]["sources"]]
+    assert not (directory / "metrics.json").exists()
 
 
 @pytest.fixture
@@ -48,6 +112,20 @@ def synthetic_run(tmp_path, monkeypatch):
 def evaluate_synthetic(run):
     directory, source, target, _, _ = run
     return evaluate_run(directory, "f1", seed=1234, source_data_root=source, target_data_root=target, bootstrap_resamples=8)
+
+
+def test_common_report_preserves_lacf_family_and_native_provenance(synthetic_run):
+    directory = synthetic_run[0]
+    manifest = load_score_manifest(directory, "f1", 1234, checkpoint_digest(directory / "best.pt"))
+    manifest.update(model_family="lacf", inference={"precision": "bfloat16_mixed", "batch_size": 1},
+                    source_validation_sha256="fixture", scorer_sha256={"exporter": "fixture"})
+    save_score_manifest(directory, manifest)
+    report = evaluate_synthetic(synthetic_run)
+    assert report["model_family"] == "lacf" and report["model"] == "wavlm"
+    assert report["inference"] == manifest["inference"]
+    assert report["source_validation_sha256"] == "fixture" and report["scorer_sha256"] == manifest["scorer_sha256"]
+    assert report["comparison_wide_freeze_confirmed_by_operator"] is False
+    assert report["completed_run_source_validation_required"] is True
 
 
 def write_summaries(tmp_path, template):

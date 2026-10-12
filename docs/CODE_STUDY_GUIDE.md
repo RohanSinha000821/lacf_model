@@ -495,6 +495,20 @@ for the current launch; no deferred-preflight start path is used.
 After separately authorized source/GPU validation, a native LACF exporter still
 needs the common completed-checkpoint, score-manifest and source-first gates.
 
+Owner update, 2026-10-12: source-only pre-evaluation preparation is authorized;
+target scoring and retraining remain deferred. `lacf/evaluation.py` strictly
+rebuilds completed primary checkpoints, checks local frozen weights/prototypes,
+loads only verified existing source caches and exposes batch-one cached/direct
+score iterators. `scripts/lacf/evaluate.py` reuses canonical readers, score
+recovery/manifests and shared metrics. Its default prepares source scores only;
+`--evaluate-target` additionally requires matching `source_validation.json`.
+Bounded direct-cache parity and padding diagnostics remain ignored local records,
+not a new experiment framework or modified training path. The generic summary's
+`--family lacf` distinguishes scientific seed policy from a custom storage name.
+Later same-day owner instruction authorizes native F1/F2 evaluation, now launched
+sequentially on SSH2 with the original recipe. This supersedes the preparation
+stage's target deferral for these folds only; F3/F4 and retraining remain held.
+
 Owner update, 2026-10-09: `--segment-seconds {4,10}` selects separate `lacf4s`
 and `lacf` seed-1234 families; `--output-root` protects stopped runs by allowing a
 fresh family directory. The queue routes output/completion checks to that root.

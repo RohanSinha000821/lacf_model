@@ -557,18 +557,57 @@ F2 CFAD clean unseen test. This is a preliminary two-fold comparison with each
 model's native preprocessing, not a completed four-fold result or an isolated
 freezing/duration comparison. The protocol records the narrower evaluation
 plan and requires unchanged source calibration and confidence intervals.
-Native LACF score export still needs implementation/validation, and the matching
-WavLM artifacts must be available. No target evaluation has started under this
-decision. Target-informed changes must remain exploratory rather than replace
-the frozen principal models.
+The matching completed WavLM artifacts are now available on SSH2. The owner's
+later instruction authorizes source-only preparation and a minimal LACF exporter,
+not target evaluation or further training. Target-informed changes must remain
+exploratory rather than replace the frozen principal models.
+
+Prepare a completed LACF fold's source scores (target remains unopened):
+
+```bash
+source activate.sh
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python -m scripts.lacf.evaluate \
+  --run-dir outputs/lacf10s_optimized_20261009/f1/1234 --fold f1
+```
+
+The exporter verifies the selected checkpoint, frozen weights/prototypes,
+processor revisions and existing canonical source caches; it fails on a mismatch
+instead of rebuilding caches. Encoder and backend scoring remain batch one with
+BF16 logits and FP32 sensitive calculations. Target scoring requires a separate
+owner instruction, an explicit `--evaluate-target`, and a matching
+`source_validation.json` from fresh-process source/cache checks. It uses shared
+metrics, source calibration, confidence intervals and score-recovery utilities.
+Reporting uses `--model lacf10s_optimized_20261009 --family lacf`; a later F1/F2
+summary also needs `--non-final --folds f1 f2`, and never claims four-fold completion.
+
+SSH2 source preparation passed for the preserved F1/F2 checkpoints, including
+fresh reconstruction, full cached source EER reproduction and bounded direct
+audio/cache parity. The measured padding sensitivity and verification scope are
+recorded in ignored `docs/local/lacf_pre_evaluation_20261012/PRE_EVALUATION_REPORT.md`.
+No normalization change, retraining or held-out scoring was performed.
+
+Later owner instruction, 2026-10-12: native F1/F2 evaluation is now authorized
+and launched on SSH2 in `lacf-eval1234`, sequentially F1 SpeechFake test then F2
+CFAD clean unseen test, stopping on failure. Both inputs and outputs use
+`/mnt/drive`: data root `/mnt/drive/audio-deepfake-cache`, result root
+`/mnt/drive/rohan/audio-deepfake-detection/outputs/lacf10s_optimized_20261009/`.
+Each fold writes `evaluation.log`, `target_scores.csv` and, after successful
+scoring/reporting, `metrics.json` under `<fold>/1234/`. Queue records/logs are
+ignored under `docs/local/lacf_native_eval_20261012/`. This is a launch record,
+not a completion claim. F3/F4 stay held and the original scoring recipe is fixed.
+
+```bash
+tmux attach -t lacf-eval1234
+```
 
 `ComponentConfig` explicitly controls prescribed relation groups and applicable
 semantic/consistency losses. Dimensions and unused frozen branches follow that
 configuration. A fusion module can be explicitly supplied with a declared
 dimension/configuration without changing the epoch loop. Defaults implement
 the primary model. The deferred 4 s duration arm uses
-`--segment-seconds 4`; no ablation launcher, FT4 or target exporter is provided. Shared raw/transductive metrics and CI utilities are
-unchanged; native LACF score export remains later work after source validation.
+`--segment-seconds 4`; no ablation launcher or FT4 is provided. The native exporter
+preserves shared raw/transductive metrics and CI utilities. Preparation does not
+authorize held-out evaluation or a normalization change.
 
 Synthetic CPU checks only:
 

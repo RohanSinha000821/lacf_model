@@ -56,6 +56,13 @@ def evaluate_run(
         "source_data_root": str(source_data_root), "target_data_root": str(target_data_root),
         "evaluator_sha256": checkpoint_digest(Path(__file__)),
     })
+    if "model_family" in manifest:
+        report.update(model_family=manifest["model_family"], inference=manifest["inference"])
+        report.update({key: manifest[key] for key in ("source_validation_sha256", "scorer_sha256") if key in manifest})
+        if manifest["model_family"] in ("lacf", "lacf4s"):
+            report.update(comparison_wide_freeze_confirmed_by_operator=False,
+                          completed_run_source_validation_required=True,
+                          target_access_policy="owner_authorized_completed_lacf_native_p1")
     temporary = run_dir / "metrics.json.tmp"
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(output)

@@ -576,3 +576,69 @@ Evaluation commands no longer need `--confirm-protocol-frozen` or
 compatibility and do not assert a completed comparison-wide freeze. New reports
 record `comparison_wide_freeze_confirmed_by_operator=false` and the independent
 completed-run access policy. Existing valid metrics/provenance are preserved.
+
+## LACF source-only pre-evaluation preparation (owner authorization, 2026-10-12)
+
+F2 has finished; keep F3/F4 held. The owner now authorizes source-only F1/F2
+checkpoint/cache verification, a bounded padding diagnostic and minimal native
+score-export implementation. Target evaluation and retraining remain deferred.
+This overrides the earlier planning-only restriction for preparation, not for
+target access. No optimizer update or feature-recipe change is part of this work.
+
+`python -m scripts.lacf.evaluate --run-dir <completed-run> --fold <fold>` defaults
+to source preparation. It verifies the completed primary checkpoint, unchanged
+frozen weights/prototypes and encoding code, processor revisions, canonical
+source-cache membership/labels/checksums and recorded runtime, then exports
+batch-one source scores and reproduces per-domain/macro source EER. It never
+rebuilds a missing or mismatched cache. Source thresholds use shared calibration.
+The separate bounded direct-audio audit records its sample IDs and scope in
+`source_validation.json`; it is not a full direct-audio rescore or proof of
+population-wide equality. Historical cache metadata lacks some dependency and
+driver versions; retain that limitation rather than assert they were verified.
+
+The source-only padding diagnostic compares individual encoding with WavLM
+right-padding to 10 s in a logical batch of 132. Hold CLAP features fixed and run
+the backend one recording at a time to isolate WavLM changes. Report class/domain
+feature distances, logit shifts and explicitly labelled subset EERs. These are
+diagnostics, not new complete recipe trials or target results. Do not patch
+normalization into an existing model immediately before evaluating it.
+
+The native exporter opens targets only with explicit `--evaluate-target` and
+matching fresh-process source validation. A later owner instruction is still
+required. Retain centered common up-to-10 s intervals, short recordings, dual
+resampling, frozen eval encoders, BF16 logits and FP32 sensitive calculations.
+Reuse the common raw/transductive metrics, 1,000-resample bootstrap (seed 2026),
+canonical membership, score manifests and safe partial-score recovery. This
+does not add training resume. Custom storage folder names record scientific
+`model_family=lacf`; summary `--family lacf` applies the seed-1234 policy while
+keeping F1/F2 summaries preliminary and across-seed SD unavailable.
+
+Source preparation has passed on SSH2 for the original F1/F2 checkpoints. The
+ignored pre-evaluation report records full cached EER reproduction, bounded
+bit-exact direct/cache checks and the measured padding/batch sensitivity. The
+diagnostic is consequential for feature consistency, but its subset EER changes
+are mixed and do not establish that a revised recipe improves accuracy. Original
+development and future native target scoring share the same individual-recording
+policy. Keep that system intact unless the owner selects a separate revised
+training recipe; reporting changes alone require no retraining.
+
+## Native LACF F1/F2 evaluation launch (owner instruction, 2026-10-12)
+
+The owner explicitly requested starting F1 and F2 evaluation and confirmed that
+the recordings are on `/mnt/drive`. This supersedes the preceding deferral for
+these two original checkpoints. Fresh source/checkpoint/scorer bindings passed;
+canonical local target counts are 346,307 SpeechFake test recordings and 21,000
+CFAD clean unseen recordings. Existing transfer evidence verifies destination
+presence/sizes; full destination checksums remain waived and are not claimed.
+
+Run sequentially in one durable tmux session, F1 then F2, with no automatic retry
+and no overwrite of completed metrics. Keep centered common up-to-10 s crops,
+both encoders frozen/eval, encoder/backend batch one, workers 4/prefetch 2,
+BF16 with FP32 sensitive operations, existing source thresholds and the shared
+raw/transductive reports and 1,000-resample seed-2026 conditional bootstrap.
+Recorded padding sensitivity is a limitation of the preserved original recipe;
+no normalization patch or target-guided design/tuning is part of evaluation.
+F3/F4 remain held; no FT4, ablations, duration controls or P2–P4 are authorized.
+Launch/status and target-copy integrity evidence are local-only under
+`docs/local/lacf_native_eval_20261012/`; completion requires actual registered
+target scores and successful final reports, not this launch instruction.

@@ -316,6 +316,124 @@ def test_actual_tiny_wavlm_converts_sample_masks_to_feature_frame_masks(bf16):
     torch.testing.assert_close(output["z_w"], expected)
 
 
+def test_actual_group_norm_wavlm_padding_changes_valid_features():
+    # This documents native checkpoint behavior; masked pooling does not remove
+    # the first GroupNorm's dependence on right-zero padding.
+    torch.manual_seed(1234)
+    encoder = WavLMModel(WavLMConfig(hidden_size=768, num_hidden_layers=1,
+        intermediate_size=16, num_attention_heads=12, conv_dim=(4,), conv_stride=(2,),
+        conv_kernel=(3,), num_conv_pos_embeddings=8, num_conv_pos_embedding_groups=8,
+        feat_extract_norm="group", apply_spec_augment=False))
+    net = model.LACF(encoder, FakeClap(), torch.randn(8, 512)).eval()
+    short = torch.randn(1, 40)
+    inputs = batch()
+    inputs["wavlm"] = {"input_values": short, "attention_mask": torch.ones_like(short, dtype=torch.long)}
+    inputs["clap"]["input_features"] = inputs["clap"]["input_features"][:1]
+    with torch.inference_mode():
+        individual = net.encode_audio(inputs)["z_w"]
+        inputs["wavlm"] = {"input_values": F.pad(short, (0, 24)),
+                           "attention_mask": F.pad(torch.ones_like(short, dtype=torch.long), (0, 24))}
+        padded = net.encode_audio(inputs)["z_w"]
+    assert not torch.allclose(individual, padded, atol=1e-4, rtol=1e-4)
+    mask = encoder._get_feature_vector_attention_mask(31, inputs["wavlm"]["attention_mask"])
+    assert mask.sum().item() == 19
+
+
+@pytest.mark.parametrize("alteration", [None, "frozen", "revision", "epoch"])
+def test_completed_lacf_rebuild_checks_frozen_state_and_identity(tmp_path, monkeypatch, alteration):
+    from audio_deepfake_detection.lacf import evaluation
+    from audio_deepfake_detection.protocol import checkpoint_digest
+    original = detector().eval()
+    collator = SimpleNamespace(configuration=lambda: {"crop": "centered"})
+    revisions = {"wavlm_revision": "fixture-w", "clap_revision": "fixture-c"}
+    config = {"fold": "f1", "seed": 1234, "run_name": "lacf", "final_seed_plan": [1234],
+        "segment_seconds": 10, "sources": list(FOLDS["f1"]["sources"]),
+        "target": "speechfake", "target_split": "test", "source_sha256": {},
+        "components": original.configuration(), "input_policy": collator.configuration(),
+        "precision": "bfloat16_mixed", "sensitive_dtype": "float32", "trainable_parameters": 661479, **revisions}
+    state = copy.deepcopy(original.state_dict())
+    state["adapter.1.bias"].add_(.5)
+    if alteration == "frozen":
+        state["wavlm.projection.bias"].add_(.1)
+    if alteration == "revision":
+        config["wavlm_revision"] = "wrong"
+    directory = tmp_path / "lacf_custom" / "f1" / "1234"
+    directory.mkdir(parents=True)
+    torch.save({"fold": "f1", "epoch": 2 if alteration == "epoch" else 1, "config": config,
+                "macro_dev_eer": .1, "model_state_dict": state}, directory / "best.pt")
+    digest = checkpoint_digest(directory / "best.pt")
+    config.update(selected_epoch=1, selected_checkpoint_sha256=digest, selected_macro_source_dev_eer=.1)
+    (directory / "config.json").write_text(json.dumps(config))
+    (directory / "training_complete.json").write_text(json.dumps({"fold": "f1", "seed": 1234,
+        "best_epoch": 1, "final_epoch": 6, "best_macro_source_dev_eer": .1,
+        "best_checkpoint_sha256": digest, "selected_checkpoint_reloaded_and_source_verified": True,
+        "reloaded_dev_eers": dict.fromkeys(FOLDS["f1"]["sources"], .1)}))
+    monkeypatch.setattr(evaluation, "load_local_model", lambda **kwargs: (detector(), collator, revisions))
+    if alteration:
+        with pytest.raises(ValueError):
+            evaluation.load_completed_model(directory, "f1", "cpu")
+    else:
+        loaded, _, _, _ = evaluation.load_completed_model(directory, "f1", "cpu")
+        torch.testing.assert_close(loaded.adapter[1].bias, state["adapter.1.bias"])
+        assert not loaded.training and not loaded.wavlm.training and not loaded.clap.training
+
+
+@pytest.mark.parametrize("alteration", [None, "membership", "runtime", "checksum"])
+def test_evaluation_reuses_only_verified_source_cache(tmp_path, alteration):
+    from audio_deepfake_detection.lacf.cache import frozen_development
+    from audio_deepfake_detection.lacf.evaluation import load_development_cache, cached_scores
+    from audio_deepfake_detection.protocol import checkpoint_digest
+    net = detector().eval()
+    records = [("fixture.wav", 0)]
+    inputs = batch()
+    inputs = {key: {k: v[:1] for k, v in value.items()} if isinstance(value, dict) else value[:1]
+              for key, value in inputs.items()}
+    class Loader:
+        dataset = SimpleNamespace(training=False)
+        def __iter__(self):
+            return iter([inputs])
+    cache = frozen_development(net, Loader(), records, "cpu", identity={"domain": "asv2019"}, directory=tmp_path)
+    reference = {"path": str(cache.path), "sha256": cache.sha256}
+    identity = {"domain": "asv2019"}
+    if alteration == "membership":
+        records = [("another.wav", 0)]
+    if alteration == "runtime":
+        identity["domain"] = "wrong"
+    if alteration == "checksum":
+        reference["sha256"] = "0" * 64
+    if alteration:
+        with pytest.raises(ValueError):
+            load_development_cache(reference, records, identity, "cpu")
+    else:
+        loaded = load_development_cache(reference, records, identity, "cpu")
+        with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16):
+            expected = net(inputs)["logit"].float().tolist()
+        assert list(cached_scores(net, loaded, "cpu")) == expected
+        assert checkpoint_digest(cache.path) == cache.sha256
+
+
+@pytest.mark.parametrize("alteration", [None, "label", "batch_size"])
+def test_native_direct_score_rows_preserve_bf16_logits_and_order(tmp_path, alteration):
+    from audio_deepfake_detection.lacf.evaluation import direct_rows
+    from audio_deepfake_detection.protocol import dataset_root
+    net = detector().eval()
+    inputs = batch()
+    if alteration != "batch_size":
+        inputs = {key: {k: v[:1] for k, v in value.items()} if isinstance(value, dict) else value[:1]
+                  for key, value in inputs.items()}
+    records = [(str(dataset_root(tmp_path, "asv2019") / "fixture.wav"), 0)]
+    with torch.inference_mode(), torch.autocast("cpu", dtype=torch.bfloat16):
+        expected = net(inputs)["logit"].float()[0].item()
+    if alteration == "label":
+        inputs["labels"][0] = 1
+    if alteration:
+        with pytest.raises(ValueError):
+            list(direct_rows(net, [inputs], records, "asv2019", tmp_path, "cpu"))
+    else:
+        assert list(direct_rows(net, [inputs], records, "asv2019", tmp_path, "cpu")) == [
+            ("fixture.wav", "asv2019", 0, expected)]
+
+
 def test_local_checkpoint_loading_is_offline_and_exact_prompt_order(monkeypatch):
     calls = []
     wavlm, clap = FakeWavLM(), FakeClap()
