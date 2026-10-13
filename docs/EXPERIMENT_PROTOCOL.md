@@ -1,5 +1,34 @@
 # Cross-domain experiment protocol (v4)
 
+## Owner-authorized LACF F3 launch and loading update (2026-10-13)
+
+Start fresh native 10 s, seed-1234 F3 only; F4 remains held. This supersedes
+older F3 scheduling holds, not target-isolation rules. Preserve the primary
+architecture, frozen encoders, 661,479 trainable parameters, BF16/FP32 policy,
+physical/effective batch 132, accumulation 1, AdamW LR 0.0003/weight decay
+0.0001, constant LR, maximum 30 epochs/patience 5 and source-only macro EER
+selection/reload. No resume, target evaluation or model revision is authorized.
+
+Bounded F3 source-only forward/backward/optimizer probes compared 2, 16 and 32
+workers. Longer 120-step probes discarded 64 warmup steps: 16 workers measured
+111.67 recordings/s and 32 measured 116.63; both had less than 0.1% loader wait.
+Select 16 training workers, retain 4 development workers and prefetch 2. The
+small throughput difference does not justify doubling worker count. These are
+short operational measurements, not full-epoch speed guarantees or complete
+scientific recipe candidates. Selection uses no target results.
+
+F1/F2 used 2 training workers; changing workers can change random-crop RNG
+assignment, so do not claim identical trajectories across loader settings.
+The sampler, crop distribution, scientific settings and input/scoring policy
+remain unchanged. Reuse the verified centered source-development features;
+random training crops continue through both frozen encoders. Review the new
+evaluation-only provenance entry separately while preserving all original
+training-file hashes and the prior freeze. Local measurements, reviewed freeze
+and launch evidence live in `docs/local/lacf_f3_launch_20261013/`. No repeated
+full-cache scan or multi-hour encoder validation is implied by that metadata
+addition. F3's selected checkpoint still requires full-source reload verification
+before its completion marker; no automatic F4 advancement is authorized.
+
 ## Planned LACF F2 boundary and preliminary comparison (2026-10-12)
 
 Latest owner clarification: this is a shared plan, not an instruction to implement
