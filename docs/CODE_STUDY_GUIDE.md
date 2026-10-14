@@ -542,3 +542,15 @@ selection/calibration checks remain before target access; P2 still requires its
 source-only checkpoint selection record. Native AASIST scoring remains batch
 one, FP32 with deterministic cuDNN. The currently running F1 evaluator started
 under the earlier F1-specific authorization and is preserved without restart.
+
+
+AASIST execution overhead (2026-10-14): `train_epoch` accumulates detached
+float64 loss statistics on-device and transfers them for logging/end-of-epoch
+only; finite-loss checking, gradients and optimizer/scheduler updates are
+unchanged. Train/dev phase seconds are printed and checkpointed.
+`AASIST(cache_sinc_filters=True)` uses a nonpersistent fixed-filter buffer via
+`_CachedSincConv`; the default path and vendored architecture file are unchanged.
+Training enables this only with `--cache-sinc-filters`, recorded in config.
+Strict loading of older checkpoints is preserved. Source-only GPU equivalence
+and performance validation are required before using the optional cache in
+final runs; current CPU tests alone do not establish GPU speedup.

@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, WeightedRandomSampler
 
 from audio_deepfake_detection.data import Record, load_audio_segment, resample_audio
-from audio_deepfake_detection.sota.aasist_arch import Model
+from audio_deepfake_detection.sota.aasist_arch import CONV, Model
 
 UPSTREAM_COMMIT = "a04c9863f63d44471dde8a6abcb3b082b07cd1d1"
 SAMPLE_RATE = 16000
@@ -84,9 +84,29 @@ def _loader(dataset, *, batch_size, num_workers, prefetch_factor, **kwargs):
                       pin_memory=True, shuffle=False, drop_last=False, **kwargs)
 
 
+class _CachedSincConv(CONV):
+    """Optional fixed-filter cache; no parameter/checkpoint-key changes."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.register_buffer("_fixed_filters", self.band_pass.view(
+            self.out_channels, 1, self.kernel_size).clone(), persistent=False)
+
+    def forward(self, x, mask=False):
+        if mask:
+            return super().forward(x, mask=True)
+        self.filters = self._fixed_filters
+        return torch.nn.functional.conv1d(
+            x, self.filters, stride=self.stride, padding=self.padding,
+            dilation=self.dilation, bias=None, groups=1)
+
+
 class AASIST(Model):
-    def __init__(self):
+    def __init__(self, *, cache_sinc_filters=False):
         super().__init__(deepcopy(MODEL_CONFIG))
+        if cache_sinc_filters:
+            self.conv_time = _CachedSincConv(
+                out_channels=MODEL_CONFIG["filts"][0], kernel_size=MODEL_CONFIG["first_conv"],
+                in_channels=1)
 
     def forward(self, waveforms):
         if waveforms.ndim != 2 or waveforms.shape[1] != NUM_SAMPLES:

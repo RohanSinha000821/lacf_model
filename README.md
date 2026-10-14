@@ -284,6 +284,17 @@ preserved in `AASIST_LICENSE`. The small `aasist.py` adapter handles resampling,
 fixed-length inputs, domain-balanced sampling and the project's label order.
 No released ASVspoof-trained checkpoint is loaded, including in F4.
 
+Performance work, 2026-10-14: future AASIST training keeps detached loss
+statistics in float64 on the execution device and transfers them only for
+100-step logs and the final mean. The per-batch finite-loss guard is retained;
+optimizer updates and sample weighting are unchanged. Phase durations are
+printed for training and source-dev scoring. Optional `--cache-sinc-filters`
+keeps the fixed sinc filters on the model device, avoiding their per-forward
+CPU-to-GPU copy. The cache defaults off until source-only GPU output/gradient
+and throughput checks pass; it adds no persistent checkpoint keys. CPU exact
+output/gradient, old-checkpoint compatibility and optimizer checks passed.
+This is not a measured GPU speedup. Active training is not restarted or changed.
+
 The primary recipe is **batch 24**, FP32, Adam `1e-4`, weight decay `1e-4`,
 weighted CE `[0.9, 0.1]`, and per-update cosine decay to `5e-6` over a nominal
 100 epochs. Patience is 5 using the same macro source-dev EER as WavLM.

@@ -35,6 +35,8 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--eval-workers", type=int, default=4)
     parser.add_argument("--prefetch-factor", type=int, default=2)
+    parser.add_argument("--cache-sinc-filters", action="store_true",
+                        help="Opt-in fixed-filter transfer cache; validate source GPU equivalence before final use")
     args = parser.parse_args()
     if min(args.seed, args.num_workers, args.eval_workers) < 0 or args.prefetch_factor < 1:
         parser.error("Seed/workers must be nonnegative and prefetch factor positive")
@@ -64,7 +66,9 @@ def make_optimizer(model, *, steps_per_epoch):
 def train_epoch(model, loader, optimizer, scheduler, device):
     model.train()
     criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(CLASS_WEIGHTS, device=device))
-    loss_sum, count = 0.0, 0
+    # Keep detached float64 loss statistics on-device; synchronize only for logs.
+    loss_sum = torch.zeros((), dtype=torch.float64, device=device)
+    count = 0
     for step, (waveforms, labels) in enumerate(loader, 1):
         waveforms = waveforms.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -75,13 +79,13 @@ def train_epoch(model, loader, optimizer, scheduler, device):
         loss.backward()
         optimizer.step()
         scheduler.step()
-        loss_sum += float(loss.detach()) * len(labels)
+        loss_sum.add_(loss.detach().double() * len(labels))
         count += len(labels)
         if step % 100 == 0:
-            print(f"step={step:05d}/{len(loader):05d} loss={loss_sum / count:.6f}", flush=True)
+            print(f"step={step:05d}/{len(loader):05d} loss={float(loss_sum) / count:.6f}", flush=True)
     if count == 0:
         raise ValueError("Training loader produced no samples")
-    return loss_sum / count
+    return float(loss_sum) / count
 
 
 @torch.inference_mode()
@@ -139,7 +143,7 @@ def main():
     train_loader = make_train_loader(train_sets, batch_size=BATCH_SIZE, seed=args.seed,
                                      num_workers=args.num_workers, prefetch_factor=args.prefetch_factor)
     device = torch.device("cuda")
-    model = AASIST().to(device)
+    model = (AASIST(cache_sinc_filters=True) if args.cache_sinc_filters else AASIST()).to(device)
     optimizer, scheduler = make_optimizer(model, steps_per_epoch=len(train_loader))
     config = {
         "run_name": args.run_name, "model_name": "AASIST", "model_config": MODEL_CONFIG,
@@ -147,6 +151,8 @@ def main():
         "target": fold["target"], "target_split": fold["target_split"], "seed": args.seed,
         "data_root": str(args.data_root), "batch_size": BATCH_SIZE, "eval_batch_size": 1,
         "gradient_accumulation_steps": 1, "num_workers": args.num_workers,
+        "cache_sinc_filters": args.cache_sinc_filters,
+        "loss_statistics": "detached_float64_on_device_log_every_100_steps",
         "eval_workers": args.eval_workers, "prefetch_factor": args.prefetch_factor,
         "learning_rate": LEARNING_RATE, "minimum_learning_rate": MIN_LEARNING_RATE,
         "weight_decay": WEIGHT_DECAY, "class_weights": CLASS_WEIGHTS,
@@ -177,8 +183,11 @@ def main():
         print(f"Epoch {epoch} training starts", flush=True)
         train_loss = train_epoch(model, train_loader, optimizer, scheduler, device)
         train_seconds = time.monotonic() - epoch_start
+        print(f"Epoch {epoch}: training took {train_seconds:.1f}s; source-dev scoring starts", flush=True)
         dev_start = time.monotonic()
         dev_eers = {domain: evaluate_eer(model, loader, device) for domain, loader in dev_loaders.items()}
+        dev_seconds = time.monotonic() - dev_start
+        print(f"Epoch {epoch}: source-dev scoring took {dev_seconds:.1f}s", flush=True)
         macro = float(np.mean(list(dev_eers.values())))
         if not np.isfinite(macro):
             raise RuntimeError("Nonfinite development EER; no completion marker will be written")
@@ -193,7 +202,7 @@ def main():
             "scheduler_state_dict": scheduler.state_dict(), "train_loss": train_loss,
             "dev_eers": dev_eers, "macro_dev_eer": macro, "best_macro_dev_eer": best_eer,
             "bad_epochs": bad_epochs, "optimizer_updates": epoch * len(train_loader),
-            "train_seconds": train_seconds, "dev_seconds": time.monotonic() - dev_start,
+            "train_seconds": train_seconds, "dev_seconds": dev_seconds,
         }
         # Temporary files avoid exposing a partially written checkpoint.
         for name in (["last.pt", "best.pt"] if improved else ["last.pt"]):

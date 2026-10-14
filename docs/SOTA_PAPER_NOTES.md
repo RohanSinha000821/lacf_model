@@ -253,3 +253,14 @@ then F2 CFAD clean unseen test run sequentially from the local cache, with the
 original normalization/precision/scoring recipe. This permits evaluation only;
 no target feedback may select a feature correction, architecture or training
 setting. F3/F4 remain held and a two-fold comparison remains preliminary.
+
+AASIST execution-only adaptation, 2026-10-14: the released sinc frontend builds
+constant filters at initialization but clones/transfers them each forward.
+An optional adapter subclass stores identical filters as a nonpersistent device
+buffer, preserving convolution arguments, parameters and checkpoint keys; the
+vendored original remains unchanged. Cache defaults off, and masking falls back
+to the original implementation. Exact CPU frontend outputs/input gradients and
+full-network eval scores match, but source GPU equivalence/performance remain
+unvalidated. Detached loss reporting now avoids its additional per-batch device
+to host transfer; the finite-loss guard and optimizer recipe are retained.
+No precision, augmentation, sampler, crop or architecture change is implied.

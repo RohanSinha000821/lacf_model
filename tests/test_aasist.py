@@ -295,3 +295,66 @@ def test_wrong_checkpoint_rejected(synthetic_evaluation, key, value):
 def test_completed_fold_evaluation_does_not_require_global_confirmation(monkeypatch, fold):
     monkeypatch.setattr(sys, "argv", ["evaluate.py", "--fold", fold])
     assert evaluate.parse_args().fold == fold
+
+
+def test_cached_sinc_preserves_filters_outputs_gradients_and_checkpoint_keys():
+    reference = aasist.CONV(out_channels=70, kernel_size=128)
+    cached = aasist._CachedSincConv(out_channels=70, kernel_size=128)
+    assert set(cached.state_dict()) == set(reference.state_dict())
+    torch.testing.assert_close(cached._fixed_filters[:, 0], reference.band_pass, rtol=0, atol=0)
+    x = torch.randn(2, 1, 2048, requires_grad=True)
+    y = x.detach().clone().requires_grad_(True)
+    out = reference(x)
+    other = cached(y)
+    torch.testing.assert_close(other, out, rtol=0, atol=0)
+    out.square().sum().backward()
+    other.square().sum().backward()
+    torch.testing.assert_close(y.grad, x.grad, rtol=0, atol=0)
+    # No per-forward CPU-to-device copy or clone is needed for the cached path.
+    assert cached.filters.data_ptr() == cached._fixed_filters.data_ptr()
+
+
+def test_cached_aasist_old_checkpoint_and_eval_scores_are_identical():
+    previous = torch.get_num_threads()
+    torch.set_num_threads(2)
+    try:
+        reference = aasist.AASIST().eval()
+        cached = aasist.AASIST(cache_sinc_filters=True).eval()
+        cached.load_state_dict(reference.state_dict(), strict=True)
+        assert set(cached.state_dict()) == set(reference.state_dict())
+        assert sum(p.numel() for p in cached.parameters()) == 297866
+        x = torch.randn(1, 64600)
+        with torch.inference_mode():
+            torch.testing.assert_close(cached(x), reference(x), rtol=0, atol=0)
+    finally:
+        torch.set_num_threads(previous)
+
+
+def test_loss_statistics_optimization_preserves_optimizer_updates_and_loss():
+    reference = torch.nn.Linear(3, 2)
+    model = copy.deepcopy(reference)
+    batches = [(torch.randn(n, 3), torch.arange(n) % 2) for n in [4, 3]]
+    optimizer, scheduler = train.make_optimizer(model, steps_per_epoch=2)
+    other_optimizer, other_scheduler = train.make_optimizer(reference, steps_per_epoch=2)
+    criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(train.CLASS_WEIGHTS))
+    total = 0.0
+    for x, y in batches:
+        other_optimizer.zero_grad(set_to_none=True)
+        loss = criterion(reference(x), y)
+        total += float(loss.detach()) * len(y)
+        loss.backward()
+        other_optimizer.step()
+        other_scheduler.step()
+    observed = train.train_epoch(model, batches, optimizer, scheduler, torch.device("cpu"))
+    assert observed == total / 7
+    for actual, expected in zip(model.parameters(), reference.parameters()):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert scheduler.state_dict() == other_scheduler.state_dict()
+
+
+def test_training_still_rejects_nonfinite_loss():
+    model = torch.nn.Linear(3, 2)
+    optimizer, scheduler = train.make_optimizer(model, steps_per_epoch=1)
+    with pytest.raises(RuntimeError, match="Nonfinite training loss"):
+        train.train_epoch(model, [(torch.full((1, 3), float("nan")), torch.tensor([0]))],
+                          optimizer, scheduler, torch.device("cpu"))
