@@ -1,5 +1,20 @@
 # SOTA paper reading notes for the LACF comparison
 
+## Source-only information-loss probes (owner authorization, 2026-10-18)
+
+Reread the complete main LACF DOCX including tables/equations and relevant original
+pipeline/master-plan pages for Step 3. The owner's later diagnostic instructions
+override the older experimental ordering: frozen-feature logistic/MLP probes use
+inner leave-one-source-out on F1–F3 and seeds1234/1235/1236. They do not replace
+the initial single-seed primary study. Raw pooled WavLM or a fresh learned
+13-layer mixture is probed without the anchor adapter; CLAP projected features
+use existing L2 normalization. Concatenation combines the learned mixture and
+normalized CLAP. The MLP reuses the prescribed 64→16 hidden/head ordering, and
+logistic is one linear layer. Pure detection BCE applies to these embedding
+probes; anchor-specific auxiliary losses belong to the later relation ablations.
+Approved optimization settings are reused, not selected from target performance.
+No trained encoder, old adapter or old layer weights initialize the probes.
+
 Evaluation execution fix, 2026-10-06: the initial shared-GPU 8 GiB cap, not
 physical GPU exhaustion, stopped native WavLM scoring on a 124-second recording.
 The owner requested no allocator ceiling. Full-utterance batch-one BF16 scoring,

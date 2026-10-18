@@ -1,5 +1,179 @@
 # Cross-domain experiment protocol (v4)
 
+## Owner-staged information-loss investigation (2026-10-14)
+
+The owner requests diagnostics before redesign, with results shared after each
+step before proceeding. Step 1 is authorized now: preserved LACF F1/F2 source
+development and already-evaluated F1/F2 targets only, and learned weights from
+completed WavLM-WA F1–F3 checkpoints. This is descriptive checkpoint diagnosis,
+not new training, calibration, a changed score recipe or target-based tuning.
+Keep the existing LACF F3 evaluation running and report its completed result.
+GPU Step 1 inference waits for that evaluation to finish rather than competing
+with it. CPU checkpoint/prototype/layer-weight inspection may proceed now.
+
+WavLM F4 training remains held by the owner's latest instruction. F4 and external
+sets (ASVspoof 2021 DF, MLAAD/M-AILABS and PartialSpoof) must not be inspected or
+evaluated until a final model is frozen. Later design selection must use inner
+leave-one-source-out splits: two source domains for fitting, third source domain
+for validation, rotated within each fold. F1/F2/F3 target results cannot select
+new design choices. Steps 2–4 are subsequent stages, not an automatic queue.
+
+Future trained configurations from Step 3 use owner-specified seeds 1234, 1235
+and 1236; existing seed-1234 primary runs/results are unchanged.
+
+Later owner authorization, 15 October: Step 1 results have been shared and Step 2
+may proceed. Cache the source train/dev union for F1–F3, using canonical readers;
+no test/eval or external recordings are read. Each training recording has the
+centred view and two fixed random views; development has the centred view only.
+All views use one native physical interval up to 10 s, independently resampled
+to 16/48 kHz. Crop seed 1234 and canonical domain/split/ID identify the fixed
+random offsets independently of loader workers and future fitting seeds. Identical
+crop intervals share stored rows, retaining their logical view aliases. This fixed
+crop diagnostic differs from the primary continuous random-crop training policy.
+
+Store FP32 validity-mask-pooled projected frontend plus twelve Transformer
+outputs, consistent with WavLM-WA's 13-representation definition; Hugging Face
+`hidden_states[0]` is not substituted for the frontend. Store the raw 512-D CLAP
+audio projection before its API's internal normalization. The encoders remain
+foundation-pretrained, frozen/eval, BF16 with sensitive calculations FP32; no
+completed fold's adapter, classifier or learned layer weights enter this cache.
+Native WavLM inputs are never padded to form a mixed-length encoder batch.
+Bounded source parity/speed checks precede extraction. Initially, 15 October,
+batch-one arithmetic was retained when batching changed BF16 feature values.
+Later owner speed request, 16 October: accelerate this new diagnostic cache
+through equal-length WavLM batches using the existing full forward and independent
+CLAP batches of fixed-size processed mel inputs. Retain BF16/FP32 calculations
+and measure/report rounding differences; do not require bit-exact batch-one values
+for the accelerated segment. Existing primary/checkpoint scorers and Step 1 retain
+their original numerical policies. No deeper split of the WavLM forward is used.
+
+Preserve completed cache shards and their original config. An explicit
+`--continue-cache` verifies completed manifest chains and interrupted-split
+payload hashes, canonical identities and fixed-crop aliases before extracting
+missing records only. The accelerated segment has separate code/benchmark/batch
+provenance; each new shard binds its execution record. Storage grouping-window
+size can change without changing physical crops, examples or encoder architecture.
+Do not describe the resulting mixed execution history as globally bit-exact to
+batch-one inference. This feature extraction continuation is distinct from
+model-training resume, which remains unimplemented. Local cache completion
+requires every canonical record and logical view, finite arrays and shard hashes.
+The cache is extracted once and reused across all fitting seeds/configurations.
+
+Actual CLAP `repeatpad` repeats complete copies of a short waveform, then
+zero-pads the remainder to 480,000 samples. Its configured `rand_trunc` is not
+invoked for common physical views already at most 10 s. Do not replace this
+with pure zero-padding or change the existing trained input recipe.
+
+The owner approved reusing the existing settings for Steps 3–4: AdamW LR 0.0003,
+weight decay 0.0001, constant LR, batch 132, maximum 30 epochs/patience 5, and
+the existing 64→16 MLP hidden layers. Initialize trainable components freshly
+for every inner split and seed 1234/1235/1236. Select checkpoints strictly by
+inner-held source-dev EER (ties retain earlier), report EER/AUROC and equal-domain
+macro summaries, and keep the original domain/class-balanced utterance sampling.
+Share Step 2 results before moving to fitting; unresolved consequential probe or
+ablation specifications must be settled before the affected configuration runs.
+
+### Step 3 source-only probes authorized 18 October
+
+Step 2 completed and its results were shared before the owner requested Step 3.
+Cover F1–F3 only. For each outer fold, rotate the third source domain as the
+inner validation domain: fit on the other two official source train partitions,
+select on the held-in-source official development partition. Other development
+partitions and the outer excluded domain do not select that fit. F4 and external
+holds remain. There is no new target scoring or use of prior target metrics.
+
+Four inputs each receive logistic and small-MLP heads: raw pooled last-layer
+WavLM (768); learned softmax mixture of all 13 pooled WavLM representations (768);
+CLAP's L2-normalized projected embedding (512); and weighted WavLM concatenated
+with normalized CLAP (1280). This uses native WavLM pooled features without an
+anchor adapter or new feature standardization. CLAP normalization follows the
+existing model's embedding policy. Thirteen mixing scalars start at zero/uniform
+and train jointly with the head for weighted/concat probes; therefore their
+logistic head is linear in a learned mixture rather than a fixed layer vector.
+Pooling before scalar layer mixing is equivalent to mixing before masked pooling
+because all layers share the same validity mask. Cache R0 remains the projected
+frontend, not Hugging Face hidden_states[0].
+
+The logistic head is one linear layer. The MLP reuses the existing pre-linear
+LayerNorm, 64→16 hidden dimensions, GELU/dropout0.2 and scalar spoof-logit order.
+Use detection BCE only: these probes do not produce anchor probabilities, so
+semantic-group/BF-JS losses are inapplicable. The primary model and its losses
+are unchanged. Every fit uses newly initialized heads/mixing weights, never a
+completed LACF/WavLM checkpoint or timing-trained state. No encoder is loaded.
+
+Retain AdamW LR0.0003, weight decay0.0001, constant LR, physical/effective batch132,
+accumulation1, BF16 operations with FP32 mixing/normalization/loss, maximum30epochs
+and patience5. Strictly lower inner source-dev EER selects; ties keep the earlier
+checkpoint. Source train sampling uses the existing inverse domain/class bucket
+weights and replacement, with epoch draws equal to the number of utterances in
+the two fit domains. Select one of the three logical fixed training views uniformly
+per sampled utterance; identical crop aliases do not alter probability or triple
+epoch visits. Validation uses the centered view only. This remains a fixed-view
+diagnostic study, distinct from the primary continuous-random-crop training.
+
+Verify canonical IDs/labels, complete manifest chains, all payload SHA256 and
+array dimensions once when loading CPU-resident source features; vectorized
+batch gathers avoid per-example disk/audio reads. The shared source union is
+reused, but each fit routes only its two train domains and one inner dev domain.
+Fresh selected-checkpoint reload must reproduce source logits/metrics exactly;
+shared CSV writing/reading checks IDs/labels and spoof direction before completion.
+Existing run directories are refused, and a failure stops the sequential queue.
+No model-training resume or automatic failure restart is implemented.
+
+There are 216 fits: 3 outer folds × 3 inner rotations × 3 seeds × 4 inputs ×
+2 heads. For each outer/input/head/seed, average the three inner-domain EERs
+and AUROCs equally; then report mean and sample SD (ddof1) across seeds1234/1235/1236.
+These are inner source diagnostics, not target results or confidence intervals.
+Bounded timing uses eight warmup and64 measured updates per fixed input/head
+plus source-dev scoring/checkpoint round trips; timing states are preserved as
+timing-only and discarded for final initialization. They are not completed
+scientific recipe candidates. No optimizer/batch/architecture search is performed.
+Share Step 3 results and stop before Step 4.
+
+The existing eight anchors comprise three bona-fide and five spoof concepts.
+Step 1 therefore reports both masses, using uniform references 3/8 and 5/8,
+respectively; no concepts, group indices, templates, temperature, losses or
+normalization are changed to fit the advisory message's 3/8 spoof-mass wording.
+JS divergence is reported in natural-log units (nats). Source summaries include
+per-domain values and explicitly distinguished pooled/equal-domain summaries.
+Native batch-one BF16/FP32 inference is retained, and all recomputed classifier
+logits must match preserved score CSVs before diagnostic completion. Partial or
+failed diagnostics are preserved; no automatic retries or training resume.
+
+## Owner-authorized native LACF F3 evaluation (2026-10-14)
+
+The owner authorizes native P1 evaluation of the completed seed-1234 F3 LACF
+checkpoint on ASVspoof 5 Track 1 eval. Training finished at epoch 13; source-only
+selection chose epoch 8, macro source-dev EER 8.258790%, and selected-checkpoint
+reload passed. This supersedes earlier F3 target holds only. F4 remains held;
+no new training, FT4, ablations, duration controls or P2–P4 are authorized.
+
+Use 32 data-loader workers, the available CPU count, prefetch 2 and the unchanged
+batch-one native scorer: a centered common physical interval up to 10 seconds,
+16/48 kHz views, frozen encoders, BF16 mixed precision with FP32 sensitive
+calculations, scalar spoof logit and source-only calibration. All 680,774
+canonical ASVspoof 5 eval recordings must be scored without skipping or changing
+input duration to recover failures. Worker count does not authorize larger
+encoder batches or numerical/input-policy changes.
+
+Before target access, reproduce complete source CSVs/EER from the existing
+verified feature caches and run bounded direct-audio/cache/exported-score parity
+using the selected checkpoint and 32 workers. Reuse the existing deterministic
+sample policy; a source-only certificate records actual checked counts, hashes,
+calibration and validation scope. No repeated full source-audio encode or
+padding-sensitivity experiment is required. Preserve F1/F2 certificates and their
+writer bytes. Target scores/metrics are written only after the production gate
+passes; report both raw and transductive branches and the existing 1,000
+conditional bootstrap resamples (seed 2026).
+
+Run records use the existing local evaluation/preparation folders, with F3
+launch/evaluation logs under `docs/local/lacf_native_eval_20261012/` and outputs
+under `outputs/lacf10s_optimized_20261009/f3/1234/`. The pipeline runs in tmux,
+stops on failures, preserves partial work, does not retry automatically and
+never advances to F4. Target-copy destination content checksums remain omitted
+under the existing owner decision; do not describe that as a passed destination
+checksum scan. Evaluation launch is not evaluation completion.
+
 ## Owner-authorized LACF F3 launch and loading update (2026-10-13)
 
 Start fresh native 10 s, seed-1234 F3 only; F4 remains held. This supersedes

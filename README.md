@@ -713,3 +713,24 @@ OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -u scripts/aasist/evaluate.py --fold 
 ```
 
 Other folds/protocols are not automatically launched by this policy change.
+
+## Staged LACF diagnostics
+
+The owner-authorized information-loss investigation is separate from primary
+training/evaluation; see the latest experiment protocol before running a stage.
+Step 2 uses `scripts/lacf/cache_diagnostics.py` for source train/dev features:
+all 13 mask-pooled WavLM representations and the raw CLAP projection, shared
+across fitting seeds. Exact-length WavLM batches and independent CLAP mel batches
+use the existing encoder forwards. Source benchmarks record BF16 batch rounding,
+memory and speed. Explicit `--continue-cache` preserves and verifies completed
+features and records a new execution segment; it is not model-training resume.
+The cache job stops after extraction and does not launch probes or target access.
+
+Step 3 is separately authorized after Step 2 results are shared. Its entry point
+is `python -u -m scripts.lacf.train_probes --output outputs/lacf_probes_step3`.
+It validates and loads cached source features once, times the fixed probe heads,
+then runs fresh F1–F3 inner-source fits for seeds1234/1235/1236. Each of four
+embedding inputs has logistic/64→16 MLP heads; the approved AdamW/batch132 recipe
+is fixed. Selected checkpoints must pass source reload/export checks. Existing
+output directories are refused; the queue stops on failure and after Step 3.
+These are source-only diagnostics, not new target evaluations or primary runs.
