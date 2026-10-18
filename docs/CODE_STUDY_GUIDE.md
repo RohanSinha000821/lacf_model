@@ -1,6 +1,6 @@
 # Python code study guide
 
-This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13 and 15 cover AASIST and LACF. Studying these files does not require starting training or evaluation.
+This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Adapted SSL feature gating has a source-only trainer and native P1 exporter, validated on synthetic CPU data only. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13, 15 and 16 cover AASIST, LACF and SSL gating. Studying these files does not require starting training or evaluation.
 
 ## 1. The overall flow
 
@@ -570,3 +570,44 @@ random crop streams but retain their policy/distribution. Full selected-source
 reload validation remains required. F2 scoring retains batch one and its source
 calibration gate; no F4 or F3 target testing is launched. Local evidence is in
 `outputs/aasist_f3_launch_20261014/` and `outputs/aasist_f2_evaluation_20261014/`.
+
+
+## 16. SSL feature gating: the third baseline (2026-10-18)
+
+This adapted baseline is separate from AASIST and LACF, without new framework
+or environment dependencies. Read its discrepancy record in SOTA_PAPER_NOTES
+before interpreting it as a reproduction. No RawBoost is the selected released
+configuration; CKA detachment and block/time layout are repaired explicitly.
+
+| File/function | Responsibility |
+|---|---|
+| `sota/ssl_gating.py`: `FullAudioDataset`, `collate_audio` | Full mono audio → resample 16 kHz → dynamic right-zero-padding, labels 0/1. No crops, waveform normalization, repetition or padding mask. |
+| `make_train_loader`, `make_eval_loader` | Equal-domain/natural-class replacement sampler, N draws, batch 5, no dropped batch; batch-one dev/test. |
+| `SSLFeatureGating` | Offline pinned pretrained XLS-R → 25 projected/gated states summed → four MultiConv blocks concatenated per time → four-head attentive mean/std pooling → SELU classifier. Public logits are bona-fide/spoof. |
+| `ssl_gating_blocks.py` | Only the selected licensed concat-fusion block and pooling paths; no ESPnet/Lightning runtime. Block normalization epsilon is 1e-12. |
+| `linear_cka`, `cka_loss` | Differentiable biased linear CKA across batch examples, six pairs of pooled block means, finite zero-variance behavior. |
+| `scripts/ssl_gating/train.py` | FP32 weighted CE + CKA, Adam constant LR, source-domain macro EER, strict improvement, best/last, provenance/counts and completion hash. Never reads the target. |
+| `scripts/ssl_gating/evaluate.py` | Completed checkpoint verification → strict reload from saved frontend config → source CSV/calibration and macro reproduction → native target CSV → shared metrics and conditional CIs. |
+| `tests/test_ssl_gating.py` | Synthetic CPU gradient, layout, full-input, sampler, source-isolation, reload and manifest/metric safeguards. |
+
+Artifacts follow `outputs/ssl_gating/<fold>/<seed>/`, compatible with the common
+score-only evaluator and summary reader. The three-seed plan is unchanged.
+The trainer refuses existing artifacts; its run lock prevents simultaneous
+writers. There is no training resume or fold queue. Native P1 reuses complete
+registered CSVs; it has no partial-prefix recovery. P2–P4 native registry support
+remains pending. Commands and prerequisites are in the root README; nothing in
+this guide authorizes a launch. Source-only GPU feasibility, short-audio/loading
+checks and full selected-checkpoint/source reload validation are still required.
+
+
+SSL-gating operational update, 2026-10-18: training workers now default to16
+per owner request; dev workers4/prefetch2 and pin/persistent settings remain.
+The trainer accepts optional --gpu-memory-budget-gib (finite positive value,
+unset by default), applies the allocator guard to explicit CUDA device0 and
+records it in config. It does not alter model/input/precision or retry OOMs.
+F1 passed bounded real-source GPU steps/reload but its initial epoch exceeded
+a10GiB shared-GPU budget. The owner keeps it stopped; no automatic restart or
+other fold. Failed-run config/log remain at outputs/ssl_gating/f1/1234/;
+preflight, code snapshot, launch/failure/hold records remain in the local launch
+folder. Existing artifacts must be preserved before any future owner-authorized
+fresh attempt; training resume is unavailable.

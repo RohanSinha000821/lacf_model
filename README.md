@@ -371,6 +371,76 @@ contract as WavLM under `outputs/aasist/<fold>/1234/`; after all four seed-1234 
 python scripts/summarize_results.py --model aasist
 ```
 
+## SSL feature gating: the third baseline
+
+The adapted Tran et al. model lives in `sota/ssl_gating.py` and
+`sota/ssl_gating_blocks.py`; the authors' code revision and inherited MIT/Apache
+notices are retained. It has 318,083,586 trainable parameters, including the
+XLS-R frontend. Full recordings are resampled to 16 kHz without waveform
+normalization; training batches are right-zero-padded, source dev/test use batch
+one without padding. No recording is cropped or skipped to fit memory.
+
+The fixed starting recipe is batch 5, FP32, Adam LR `3e-6`, weight decay `1e-4`,
+constant LR, maximum 10 epochs, patience 3, weighted CE `[0.9,0.1]` plus CKA.
+Checkpoint selection uses strictly improving equal-domain source-dev macro EER.
+The owner preferred implementation fidelity and lower cost on 2026-10-18:
+RawBoost is omitted, matching the released YAML. XLS-R's configured internal
+SpecAugment/dropout/layerdrop remain enabled in training. The repaired CKA
+gradient and per-time block concatenation deliberately differ from released
+bugs. See [paper notes](docs/SOTA_PAPER_NOTES.md#ssl-feature-gating-papercode-review-and-adaptation-2026-10-18).
+Describe this as an adapted baseline without RawBoost, not an exact reproduction
+of the paper's augmented results.
+
+Only official pretrained `facebook/wav2vec2-xls-r-300m` revision
+`1a640f32ac3e39899438a2931f9924c02f080a54` initializes the model. The loader is
+offline-only: provision those weights separately after authorization; released
+anti-spoofing checkpoints must not initialize any fold. No new dependencies or
+environment changes are needed. Parameters were counted on the meta device;
+this is not a GPU-memory measurement. Synthetic CPU tests and direct upstream
+block/pooling parity pass; real source-data/GPU feasibility, short-recording
+behavior, throughput and full source-dev/reload validation remain pending.
+
+Preparation update, 2026-10-18: the pinned official weights were downloaded on
+SSH1 and checked against their published SHA-256. Offline CPU loading has no
+missing/mismatched frontend tensors; finite synthetic inference and repeat
+inference pass. F1 source metadata and 12 bounded audio decodes also pass. This
+does not establish GPU memory, speed, backward feasibility or complete-cache
+validation. No training or GPU work was started. Local verification and manual
+launch notes are under `docs/local/ssl_gating_preparation_20261018/`.
+
+F1 launch update, 2026-10-18: the owner selected 16 training workers, 4 dev
+workers and prefetch 2, with pinned memory/persistent workers retained. Three
+real source batch-five GPU steps and six-example reload agreement passed,
+peaking at 8.04 GiB allocated/8.60 GiB reserved. These bounded checks do not
+establish complete-epoch or longest-recording feasibility. The fresh seed1234
+F1 attempt then hit its protective 10 GiB allocator budget while AASIST was
+active; no epoch/checkpoint completed. The owner explicitly chose to leave F1
+stopped, with no queued restart. Logs/config and launch evidence are preserved
+under `outputs/ssl_gating/` and `outputs/ssl_gating_f1_launch_20261018/`.
+`--gpu-memory-budget-gib` is an optional, recorded execution guard, default
+unset. Its exhaustion is not evidence that the recipe cannot fit an otherwise
+free 35 GiB GPU. A future fresh launch needs a new owner instruction and must
+preserve this failed attempt; no crop/skip/batch/precision change was applied.
+
+Commands for later authorized use, after activation and `export PYTHONPATH=src`:
+
+```bash
+python scripts/ssl_gating/train.py --help
+# Only after weights and source-only GPU readiness are verified:
+python -u scripts/ssl_gating/train.py --fold f1 --seed 1234 --num-workers 16 --eval-workers 4
+# Separate later owner-authorized native P1 evaluation of a completed run:
+python -u scripts/ssl_gating/evaluate.py --fold f1 --seed 1234 --num-workers 4
+```
+
+Runs use `outputs/ssl_gating/<fold>/<seed>/`. The trainer never opens the target;
+the exporter validates the completed checkpoint, canonical scores and source
+macro EER before target access, then reuses the common metrics/conditional CIs.
+Completed registered CSVs can be reused; partial score recovery and training
+resume are not implemented for this model. Artifacts are not overwritten.
+No queue or launch is implied. The existing three-seed plan remains
+`1234,2345,3456` for this new family, unless the owner changes it. P2–P4 native
+export integration remains separate work.
+
 ## LACF: primary frozen implementation
 
 LACF lives separately from the SOTA adapters under
@@ -649,13 +719,16 @@ normalized before ranking metrics. For normalized transfer, each source dev
 domain uses its own mean/std and the target uses its own **unlabeled** score
 mean/std. This branch is transductive, not strict zero-shot.
 
-The common metrics are ready for all models. WavLM-WA and AASIST now have
-training and score-export implementations. AASIST's short GPU feasibility check
+The common metrics are ready for all models. WavLM-WA, AASIST and adapted SSL
+feature gating have training and native P1 score-export implementations. SSL
+gating has synthetic CPU checks only; its GPU/source feasibility is pending.
+AASIST's short GPU feasibility check
 passed on 2026-10-07; the later SSH1 completion report above does not replace
 inspection of full source-development/reload evidence. Other SOTA detectors
-need model-specific code.
+need model-specific code. The extended P2–P4 native-export registry does not yet
+include SSL gating.
 
-Both evaluators validate every score ID and label against the canonical split
+Native and score-only evaluators validate every score ID and label against the canonical split
 reader. Reordered rows are accepted and sorted by ID for reproducible bootstrap
 sampling. Generic evaluation requires `best.pt`, `training_complete.json`, and a
 `score_manifest.json` that binds fold, seed, splits, checkpoint/completion hashes,

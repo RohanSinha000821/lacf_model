@@ -347,7 +347,7 @@ Published-method starting values below were checked against the five supplied pa
 | --- | --- | --- | --- | --- | --- |
 | WavLM-WA | random 4 s at 16 kHz; full utterance | **96 × 1 (latest project decision; paper used 32; earlier batch-64 F1 kept separately)** | Adam; WavLM `2e-5`, layer weights/classifier `5e-3` | exponential `gamma=0.95`; 100; 5 (**study choice; paper patience 50**) | weighted CE for `[bona fide, spoof] = [9, 1]`; BF16; 13 learned representation weights. Current script omits the paper's MUSAN/RIR and codec augmentation, initial-weight regularization, and layer-wise LR decay; do not call it an exact reproduction until these are implemented and verified. |
 | AASIST | random 64,600-sample train crop after 16 kHz resampling; first 64,600 samples for dev/test; repeat short audio | **24 × 1** | Adam `1e-4`, weight decay `1e-4`; FP32 | per-update cosine to `5e-6`; 100; 5 (**study-choice patience**) | weighted CE, reorder original class weights to `[0.9, 0.1]` and logits to bona-fide/spoof order; official architecture. Frequency masking off per released config; no RawBoost; no SWA under shared single-best source-only checkpoint policy. |
-| SSL feature gating | paper: full utterance at 16 kHz with dynamic batch padding; full utterance | **5 × 1** | Adam `3e-6`, weight decay `1e-4` | schedule to verify in released code; 10 per released config; 3 | XLS-R 300M with SwiGLU gating, MultiConv blocks, CKA dissimilarity and attentive pooling; weighted CE `[0.9, 0.1]`, RawBoost per paper. Paper writes `L_CE + L_CKA`. Released default config also lists `max_len: 64600`, `rawboost.algo: 0`, and `transform: null`; reconcile these with the paper's full-utterance/RawBoost description before final runs. |
+| SSL feature gating | full utterance at 16 kHz, dynamic right-zero-padding in training; unpadded full utterance in dev/test | **5 × 1** | Adam `3e-6`, weight decay `1e-4`; FP32, full frontend fine-tuning | constant LR per released optimizer; 10; 3 | XLS-R 300M, 25 states, 128-D SwiGLU gating, four MultiConv blocks, four-head pooling; weighted CE `[0.9, 0.1]` plus differentiable CKA, coefficient 1. No RawBoost per owner cost/fidelity direction on 2026-10-18 and released YAML. Explicit layout/CKA repairs; see the dated adaptation below. |
 | SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, RawBoost; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
 | LHCC | exactly 64,600 samples at 16 kHz, truncated/repeated | **8 × 1** | Adam `1e-6`, weight decay `1e-4` | schedule not reported; 10; 2 | XLS-R 300M low/high-level features, AFM, DCM, weighted BCE and RawBoost. Numeric class weights are not reported. Paper uses bona fide=1/spoof=0 and `1 - p_bona_fide` as spoof score; map labels and scores explicitly. |
 | LACF-10s frozen | one common physical interval, at most 10 s; resample it separately to WavLM 16 kHz and CLAP 48 kHz | configurable; default 4 × 8, effective 32 pending source-only pilot | AdamW `3e-4` for adapter/classifier, weight decay `1e-4`; no automatic LR scaling | constant LR (owner-approved); 30; 5 | BF16 mixed precision with FP32 sensitive calculations; 661,479 trainable adapter/head parameters; seed 1234 only; `BCEWithLogits + 0.25 semantic BCE + 0.10 bona-fide JS`; freeze WavLM and CLAP; eight fixed anchors and temperature `0.07`. |
@@ -359,7 +359,7 @@ AASIST implementation status, 2026-10-04: the unmodified authors' network at com
 
 Model-specific preprocessing is preserved in the main comparison. Report training, development, and test duration separately. The matched-four-second evaluation and LACF-4s versus LACF-10s duration ablation are separate prespecified tables under the safeguards below. No target-dependent crop choice is allowed.
 
-Before implementing SSL gating, resolve the paper/config conflict about full utterances versus `max_len: 64600` and RawBoost. Before implementing LHCC, resolve the paper's apparent conflict between a stated frozen XLS-R backbone and its end-to-end optimization algorithm; record the decision and treat any alternative as an ablation. For WavLM-WA, either implement the published augmentations and regularization for the primary baseline, or label the current no-augmentation implementation as a simplified baseline and avoid claiming a faithful reproduction. Keep these decisions source-only and recorded before inspecting target results.
+The SSL-gating full-input/RawBoost discrepancy is resolved in the 2026-10-18 adaptation below. Before implementing LHCC, resolve the paper's apparent conflict between a stated frozen XLS-R backbone and its end-to-end optimization algorithm; record the decision and treat any alternative as an ablation. For WavLM-WA, either implement the published augmentations and regularization for the primary baseline, or label the current no-augmentation implementation as a simplified baseline and avoid claiming a faithful reproduction. Keep these decisions source-only and recorded before inspecting target results.
 
 Paper-specific reading notes and source links are in `SOTA_PAPER_NOTES.md`.
 
@@ -845,3 +845,66 @@ F3/F4 remain held; no FT4, ablations, duration controls or P2–P4 are authorize
 Launch/status and target-copy integrity evidence are local-only under
 `docs/local/lacf_native_eval_20261012/`; completion requires actual registered
 target scores and successful final reports, not this launch instruction.
+
+
+## SSL feature gating: implementation adaptation (2026-10-18)
+
+The owner requests the third baseline and prefers the accurate released
+implementation with lower cost. After reviewing the actual Tran et al. paper
+and pinned author code, use family `ssl_gating`, no RawBoost (`algo:0` in the
+released YAML), and the fixed recipe in the table above. This is an adapted
+baseline without the paper's waveform augmentation; no claim of matching its
+published EER or lower total training cost follows. Preserve the existing
+three-seed plan for this family until explicitly changed.
+
+Retain full-utterance 16 kHz input, dynamic right-zero-padding for training,
+batch-one unpadded development/test, all XLS-R parameters trainable, and its
+pretrained internal SpecAugment/dropout/layerdrop settings. No waveform
+normalization or padding attention mask is added, matching the released path.
+Use the project's existing mono decode/resampler and SDPA attention on the
+common environment; record the exact frontend configuration/software versions.
+Short recordings that the native encoder cannot process must fail visibly,
+not be skipped, repeated, cropped or silently assigned a different recipe.
+
+Repair the released detached CKA and incorrect block/time reshape: concatenate
+four block representations at each time position, pool their means/stds, then
+penalize mean absolute biased linear CKA over the six distinct pooled-mean
+block pairs. Compute it in FP32 with gradients and coefficient 1 alongside
+weighted CE. Zero-variance and single-example batches have zero CKA with finite
+gradients. Keep the released SiLU-based SwiGLU and block LayerNorm epsilon
+1e-12. The paper's sigmoid-only equation and ambiguous diagonal summation do
+not override the released gate and distinct-pair convention. These repairs are
+explicit method adaptations, not numerically identical upstream training.
+
+Replace the released validation-loader/metadata path with the fold's three
+source dev splits only. Domain-uniform/natural-class sampling, no dropped
+last batch, strict macro-source EER selection, source threshold calibration,
+spoof-positive scores, shared P1 metrics and conditional CIs remain unchanged.
+Fresh checkpoint reload and reproduced source macro EER are required before
+opening a target. No target feedback was used to choose this implementation.
+Only the pinned official pretrained XLS-R initializes training; never load the
+released anti-spoofing detector. No training/evaluation, weight download or GPU
+validation is authorized or claimed by this implementation entry. Before any
+launch, obtain weights and separately authorize source-only full-batch GPU,
+loading/short-audio, source-dev and reload validation. No P2–P4 native exporter,
+partial-score recovery or training resume is provided for this model yet.
+
+
+## SSL-gating F1 worker/launch status (owner decision, 2026-10-18)
+
+The owner selects 16 training workers for SSL gating, retaining 4 development
+workers, prefetch2, pinned memory and persistent workers. This replaces its
+initial four-worker default; no measured worker-speed benefit is claimed.
+Batch5, FP32, end-to-end fine-tuning, full recordings, Adam/loss/sampler and
+source-only selection remain unchanged. Only F1 seed1234 was authorized, not
+additional seeds/folds or target evaluation; the family seed plan is unchanged.
+
+Source-only real-GPU preflight passed three optimizer steps and bounded
+six-example checkpoint reload. Peak allocated8.04GiB/reserved8.60GiB is limited
+to those samples, not a complete epoch, full dev validation or worst-case bound.
+A protective 10GiB allocator budget was used while preserving active AASIST.
+The subsequent fresh F1 attempt hit that budget during epoch1 and stopped before
+any epoch checkpoint/completion. This is not evidence of a full-device OOM.
+The owner then explicitly chose to leave F1 stopped: no queue, restart or
+checkpoint resume. Preserve failure artifacts and seek a new instruction for
+any future fresh launch; no automatic input/precision/batch/recipe change.

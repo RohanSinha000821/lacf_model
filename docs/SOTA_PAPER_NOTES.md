@@ -43,7 +43,7 @@ final comparison. See the latest protocol for the queue and target-freeze gate.
 | Method | Paper and key idea | Reported training facts | Reproduction issue for this project |
 | --- | --- | --- | --- |
 | WavLM-WA | `Wavlm- Backend.pdf`, Stourbe et al., ASVspoof 2024: weighted aggregation of WavLM Base representations with a spoofing backend. | Best WA system: 4 s random training crop, full-utterance test, batch 32, Adam with encoder LR `2e-5` and backend LR `5e-3`, 5% LR decrease per epoch, weighted CE with bona-fide/spoof weights `9/1`; maximum 100 epochs and patience 50. The reported best system used MUSAN noise, RIR and codec augmentation. | Project-selected batch 64 is an adaptation. Current script has no augmentation, initial-weight regularization or layer-wise LR decay; describe results as a simplified baseline unless those components are added. A prior batch-96/128 checkpoint is a pilot, not a batch-64 final run. |
-| Multi-level SSL feature gating | `SSL Feature gating.pdf`, Tran et al., ACM MM 2025: XLS-R 300M hidden-state gating, MultiConv, CKA dissimilarity, attentive pooling. | Paper describes full utterances with dynamic padding, batch 5, Adam LR `3e-6`, weight decay `1e-4`, weighted CE with bona-fide/spoof weights `0.9/0.1`, RawBoost, patience 3; final objective is written `L_CE + L_CKA`. [Author config](https://github.com/hoanmyTran/dissimilarity_deepfake_detection/blob/main/config.yaml) gives maximum 10 epochs and eval batch 1. | Released default config also has `max_len: 64600`, `rawboost.algo: 0`, `transform: null`, and monitors validation loss. Check whether its actual run path reproduces the paper's full-utterance/augmentation claims. Our common checkpoint rule uses source macro EER, so that is an explicit study adaptation. |
+| Multi-level SSL feature gating | `SSL Feature gating.pdf`, Tran et al., ACM MM 2025: XLS-R 300M hidden-state gating, MultiConv, CKA dissimilarity, attentive pooling. | Paper describes full utterances with dynamic padding, batch 5, Adam LR `3e-6`, weight decay `1e-4`, weighted CE with bona-fide/spoof weights `0.9/0.1`, RawBoost, patience 3; final objective is written `L_CE + L_CKA`. [Pinned author config](https://github.com/hoanmyTran/dissimilarity_deepfake_detection/blob/4de821cad840ef6b4f78905f9cce0523c956d988/config.yaml) gives maximum 10 epochs and eval batch 1. | Resolved 2026-10-18: `transform:null` disables the 64,600-sample path; YAML disables RawBoost. Released CKA detaches its gradient, and block/time `.view` misorders features. Our disclosed adaptation repairs these, retains no RawBoost and uses source macro EER. See the implementation findings below; this is not an exact published-result reproduction. |
 | SAM-AASIST | `SAM Anti Spoofing.pdf`, Huang et al., Interspeech 2025: sharpness-aware minimization applied to AASIST; SAM is an optimizer, not a standalone detector. | 4 s crop, RawBoost, weighted CE with bona-fide/spoof weights `0.9/0.1`, LR `1e-4`, weight decay `1e-4`, cosine floor `5e-6`, SAM radius `0.05`. [Author SAM-AASIST config](https://github.com/nii-yamagishilab/SAM-AntiSpoofing/blob/main/configs/sam/aasist_sam.yaml) sets batch 24 and 100 epochs. | The paper's `m=32` describes sharpness measurement, not its training batch. The released config also names an In-The-Wild validation set; it must not be used when that domain is held out. Replace all validation inputs with the fold's source development splits. |
 | LHCC | `LHCC.pdf`, Zhang et al., Information Fusion 134 (2026) 104358: low/high-level cross-layer consistency from XLS-R features through AFM and DCM. | Section 4.4: 16 kHz mono, exactly 64,600 samples through truncate/repeat, XLS-R 300M, batch 8, Adam LR `1e-6`, weight decay `1e-4`, maximum 10 epochs, early-stop patience 2, RawBoost. Weighted BCE is stated without numeric class weights. | Paper defines bona fide=1/spoof=0 and spoof score `1 - p_bona_fide`; convert carefully to project convention. It appears to call XLS-R frozen in one place while its algorithm describes joint end-to-end optimization; determine actual intended backbone training before implementation. Earlier project summary incorrectly treated batch/LR/epochs as unreported; use the paper's explicit values. |
 | AASIST | `AASIST.pdf`, Jung et al., ICASSP 2022: integrated spectro-temporal graph attention on raw waveform. | 16 kHz, 64,600-sample input, Adam LR `1e-4`, cosine schedule; paper averages three seeds. [Author config](https://github.com/clovaai/aasist/blob/main/config/AASIST.conf) specifies batch 24 and 100 epochs; the released training implementation supplies weight decay `1e-4` and cosine minimum `5e-6`. | Its released config can evaluate a held-out set whenever development improves. The LODO implementation must not use target results for selection. Map original label order and class weights to project bona-fide=0/spoof=1 convention. |
@@ -293,3 +293,115 @@ random crop streams but retain their policy/distribution. Full selected-source
 reload validation remains required. F2 scoring retains batch one and its source
 calibration gate; no F4 or F3 target testing is launched. Local evidence is in
 `outputs/aasist_f3_launch_20261014/` and `outputs/aasist_f2_evaluation_20261014/`.
+
+
+## SSL feature gating: paper/code review and adaptation (2026-10-18)
+
+Read the complete ten-page supplied `SSL Feature gating.pdf`, including its
+experimental tables, the relevant actual overall DOCX and SOTA overview, and
+the selected released model/data/optimizer/pooling/MultiConv paths. Primary
+sources are the [paper](https://doi.org/10.1145/3746027.3754568) and
+[author repository at 4de821c](https://github.com/hoanmyTran/dissimilarity_deepfake_detection/tree/4de821cad840ef6b4f78905f9cce0523c956d988).
+The repository is MIT licensed; its inherited ESPnet MultiConv and asv-subtools
+pooling operations use Apache-2.0 notices, retained alongside the adapter.
+No pretrained anti-spoofing checkpoint or author dataset CSVs are imported.
+
+Resolved discrepancies and declared adaptations:
+
+- Full recordings are intentional. `transform:null` bypasses the released
+  64,600-sample transform; its `max_len` value is inactive. The training collator
+  right-zero-pads to the batch maximum, and neither the frontend nor pooling
+  receives a padding mask. Preserve that behavior; evaluation at batch one
+  has no added padding. The common mono loader/torchaudio resampler replaces
+  released librosa 0.9.2, without waveform standardization.
+- Paper section 4.3 and Table 4 include RawBoost. Released YAML sets algorithm
+  zero; dataset CLI's default four does not override that zero. After the owner
+  requested fidelity and lower cost, select no RawBoost. This omits a component
+  credited in the paper and must be disclosed. XLS-R's own feature masking,
+  dropout and layerdrop remain enabled; “no RawBoost” does not disable those.
+- Released `cka(...).item()` and `torch.tensor(cka_values)` detach the auxiliary
+  objective. The adapter keeps its gradient, using centered linear Gram
+  matrices and the released denominator epsilon 1e-6. Common HSIC scaling
+  cancels. Only the zero-variance denominator is safely clamped before sqrt;
+  singleton/constant batches yield zero CKA with finite gradients.
+- Released `[B,4,T,128].view(B,T,512)` interleaves block/time positions. Use
+  `cat(block_outputs,dim=-1)` so every position contains its four block
+  features. Four pooling heads now align with those four blocks; CKA uses
+  the four 128-D pooled means, averaged over six unordered distinct pairs.
+  The paper's diagonal-inclusive-looking notation is ambiguous; the released
+  upper-triangle implementation excludes diagonal pairs. Coefficient is 1.
+- Preserve the configured four concat-fusion MultiConv blocks: expansion 1024,
+  kernels 3/7/11/15, depthwise merge kernel 15, SiLU gate, dropout 0.1 and
+  ESPnet LayerNorm epsilon 1e-12. The outer gating uses actual SiLU-based
+  SwiGLU from the code, rather than the paper equation's sigmoid-only form.
+  Four-head attentive mean/std pooling feeds a 1024→512→2 SELU classifier.
+- Released YAML declares `optimizer_gamma:0.9`, but the actual optimizer has
+  no scheduler. Preserve Adam 3e-6, weight decay 1e-4, constant LR, batch 5,
+  FP32, maximum 10 epochs and patience 3. XLS-R is fine-tuned end to end.
+- Released validation loader erroneously returns the training dataset; YAML
+  points validation at an ASVspoof evaluation CSV; model construction also
+  reads evaluation metadata. None is retained. Use only each fold's source
+  train/dev readers, equal-domain natural-class sampling and strict macro
+  source-dev EER selection instead of released validation loss. Seed before
+  constructing the model. Reorder logits/CE weights to project labels and
+  export `logit_spoof-logit_bona_fide`; do not fit score direction to targets.
+
+Official pretrained frontend:
+[facebook/wav2vec2-xls-r-300m](https://huggingface.co/facebook/wav2vec2-xls-r-300m/tree/1a640f32ac3e39899438a2931f9924c02f080a54),
+revision `1a640f32ac3e39899438a2931f9924c02f080a54`, 24 Transformer layers plus
+projected frontend state, 1024 dimensions. The loader is offline-only and
+pinned; reload reconstructs from the saved frontend configuration and strict
+full model state without downloading another encoder. The common environment
+uses Transformers 4.57.6/Torch 2.8.0 instead of released 4.42.3/2.3.1; SDPA was
+already supported in that released Transformers version. Project before
+stacking levels to avoid an extra full-dimensional hidden-state stack; this
+preserves the mathematical gate but may change floating-point rounding.
+Do not claim byte-equivalent full-system scores or training trajectories.
+
+Verification is synthetic CPU only: differentiable CKA against centered-Gram
+math, nonzero auxiliary gradients into the frontend, finite degenerate-case
+gradients, all-block updates, reload, full audio/padding, source-only selection
+and native score/metric provenance. A separate direct comparison with pinned
+upstream operations gives exact CPU outputs and input gradients for selected
+MultiConv and pooling paths after state mapping. Parameter counting from the
+official configuration on the meta device gives 318,083,586 total/trainable:
+315,438,720 frontend and 2,644,866 backend. This is not a GPU allocation or
+throughput measurement. Local evidence is in
+`docs/local/ssl_gating_implementation_20261018/source_parity.json`.
+Actual source-data/GPU feasibility, encoder short-recording handling and full
+source-dev/reload validation remain pending. No pretrained weights were fetched,
+no job launched and no claim of reproducing published target results is made.
+
+Preparation update, 2026-10-18: the owner requests readiness without training.
+Downloaded the exact pinned official XLS-R files on SSH1; the weight SHA-256
+matches the published LFS checksum. Actual offline encoder loading reports no
+missing/mismatched keys; seven unused pretraining projection/quantizer keys
+are expected when extracting Wav2Vec2Model from a pretraining checkpoint.
+The full adapter passes finite synthetic CPU inference and exact repeated
+inference with CUDA hidden. All 318,083,586 parameters remain trainable.
+Bounded F1 source-cache decoding is a separate CPU input check, not a completed
+source/GPU validation or fitted experiment. No optimizer was created.
+
+Fine-tuning clarification: paper section 4.3 explicitly fine-tunes the model,
+and the released optimizer covers the complete encoder plus backend. The
+existing implementation already does this: initialize XLS-R from public speech
+pretraining, initialize the detector backend freshly, then fit both together
+on source training only. Retain that approach for methodological fidelity;
+there is no additional pretraining-from-scratch stage. Freezing XLS-R would
+reduce training compute and memory but change the baseline. Neither approach
+can be claimed superior for unseen-domain generalization without source-only
+evidence; no frozen variant or target-driven selection was introduced.
+
+
+SSL-gating launch update, 2026-10-18: the owner requested F1 with16 training
+workers. Three source-only batch-five FP32 GPU optimizer steps have finite
+loss/gradients; six source-dev scores are exactly reproduced after checkpoint
+reload (tolerance1e-5). Peak8.04GiB allocated/8.60GiB reserved is a bounded probe,
+not a full-memory or throughput result. Source batches were unmodified full
+recordings, dynamically padded; no target opened and pilot weights did not
+initialize the fresh F1 run. Its epoch1 then exceeded the protective10GiB
+allocator budget alongside active AASIST; no valid epoch/checkpoint completed.
+The owner elected to keep F1 stopped, with no restart queued. This failure does
+not establish inability to fit a free35GiB device and does not authorize
+changing batch, crops, precision or freeze policy. Local evidence is preserved
+under outputs/ssl_gating_f1_launch_20261018/. No published performance claimed.
