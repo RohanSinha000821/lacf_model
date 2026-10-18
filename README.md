@@ -734,3 +734,17 @@ embedding inputs has logistic/64→16 MLP heads; the approved AdamW/batch132 rec
 is fixed. Selected checkpoints must pass source reload/export checks. Existing
 output directories are refused; the queue stops on failure and after Step 3.
 These are source-only diagnostics, not new target evaluations or primary runs.
+
+
+AASIST operational update, 2026-10-14: after completed F2, owner authorized
+parallel F2 P1 evaluation and fresh F3 training. Bounded source-only GPU checks
+passed exact original/cached scores, training gradients and eight optimizer
+updates. A short preloaded-data probe measured ~31.65 to ~34.02 audio/s; this
+is not an end-to-end speedup guarantee or full-development validation. F3 uses
+seed 1234, unchanged batch-24 FP32 recipe, 16 train workers/8 dev workers,
+prefetch 2, CPU threads 2 and the explicitly enabled fixed-filter cache. The
+option's global default remains off. Worker-count changes alter per-worker
+random crop streams but retain their policy/distribution. Full selected-source
+reload validation remains required. F2 scoring retains batch one and its source
+calibration gate; no F4 or F3 target testing is launched. Local evidence is in
+`outputs/aasist_f3_launch_20261014/` and `outputs/aasist_f2_evaluation_20261014/`.
