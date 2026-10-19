@@ -55,6 +55,7 @@ Thumbs.db
 # Local chat continuity: unpublished results and machine-specific live status
 /docs/PROJECT_HANDOFF.md
 /docs/local/
+/docs/claude/
 
 # SSH/private credential material must never be accidentally published
 .ssh/

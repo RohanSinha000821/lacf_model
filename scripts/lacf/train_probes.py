@@ -40,11 +40,12 @@ def seed_all(seed):
     np.random.seed(seed)
 
 
-def verify_probe_completion(run, fold, seed):
+def verify_probe_completion(run, fold, seed, *, expected_stage=3):
     completion, digest = verify_completed_run(run, fold, seed)
     config = json.loads((run / "config.json").read_text())
     fit_domains = inner_domains(fold, config["inner_held_domain"])
-    if (config["stage"] != 3 or config["fold"] != fold or config["seed"] != seed or seed not in SEEDS
+    if (expected_stage not in (3, 4) or config["stage"] != expected_stage
+            or completion["stage"] != expected_stage or config["fold"] != fold or config["seed"] != seed or seed not in SEEDS
             or config["fit_domains"] != list(fit_domains)
             or completion["best_checkpoint_sha256"] != digest
             or completion.get("selected_checkpoint_reloaded_and_source_verified") is not True
@@ -61,9 +62,10 @@ def verify_probe_completion(run, fold, seed):
     return completion
 
 
-def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, logger):
+def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, logger,
+              model_factory=Probe, stage=3, feature_inputs=None, last_layer_only=False):
     fit_domains = inner_domains(fold, held)
-    if seed not in SEEDS:
+    if seed not in SEEDS or stage not in (3, 4):
         raise ValueError("Unapproved diagnostic seed")
     run.mkdir(parents=True, exist_ok=False)
     handler = logging.FileHandler(run / "training.log")
@@ -71,13 +73,18 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
     logger.addHandler(handler)
     try:
         seed_all(seed)
-        model = Probe(inputs, head).to(device)
+        model = model_factory(inputs, head).to(device)
         optimizer = make_optimizer(model)
-        train = FeatureBatches([bank[d, "train"] for d in fit_domains], inputs, device, training=True, seed=seed)
-        dev = FeatureBatches([bank[held, "dev"]], inputs, device, training=False, seed=seed)
-        config = {"stage": 3, "fold": fold, "inner_held_domain": held, "fit_domains": list(fit_domains),
+        feature_inputs = feature_inputs or inputs
+        train = FeatureBatches([bank[d, "train"] for d in fit_domains], feature_inputs, device,
+                               training=True, seed=seed, last_layer_only=last_layer_only)
+        dev = FeatureBatches([bank[held, "dev"]], feature_inputs, device,
+                             training=False, seed=seed, last_layer_only=last_layer_only)
+        model_key = "probe" if stage == 3 else "ablation"
+        config = {"stage": stage, "fold": fold, "inner_held_domain": held, "fit_domains": list(fit_domains),
                   "excluded_outer_domain": FOLDS[fold]["target"], "seed": seed, "seed_plan": list(SEEDS),
-                  "probe": model.configuration(), "batch_size": BATCH_SIZE, "accumulation": 1,
+                  model_key: model.configuration(), "batch_size": BATCH_SIZE, "accumulation": 1,
+                  "feature_inputs": feature_inputs, "last_layer_only": last_layer_only,
                   "optimizer": "AdamW", "lr": 3e-4, "weight_decay": 1e-4, "scheduler": "constant",
                   "max_epochs": MAX_EPOCHS, "patience": PATIENCE, "precision": "BF16 mixed; sensitive FP32",
                   "sampling": "shared inverse domain/class bucket mass; replacement; utterance count per epoch",
@@ -90,7 +97,7 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
         save_json(run / "config.json", config)
         logger.info("START %s/%s %s %s seed=%d | fit=%s dev=%s | train=%d dev=%d parameters=%d",
                     fold, held, inputs, head, seed, fit_domains, held, train.count, dev.count,
-                    config["probe"]["trainable_parameters"])
+                    config[model_key]["trainable_parameters"])
         best, stale, best_epoch, best_scores = float("inf"), 0, None, None
         started = time.monotonic()
         with (run / "history.jsonl").open("x") as history:
@@ -123,7 +130,7 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
         checkpoint = torch.load(run / "best.pt", map_location="cpu", weights_only=True)
         if checkpoint["config"] != config or checkpoint["epoch"] != best_epoch:
             raise ValueError("Selected probe checkpoint identity changed")
-        reloaded = Probe(inputs, head).to(device)
+        reloaded = model_factory(inputs, head).to(device)
         reloaded.load_state_dict(checkpoint["model_state_dict"], strict=True)
         reloaded_scores, metrics = score_probe(reloaded, dev)
         if not torch.equal(reloaded_scores, best_scores) or metrics != checkpoint["inner_dev"]:
@@ -138,13 +145,14 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
         order = sorted(range(len(dataset.ids)), key=dataset.ids.__getitem__)
         if not np.array_equal(exported, reloaded_scores.numpy()[order]):
             raise ValueError("Saved source scores differ from the reloaded probe")
-        alpha = None if reloaded.layer_weights is None else reloaded.layer_weights.detach().float().softmax(0).cpu().tolist()
+        weights = getattr(reloaded, "layer_weights", None)
+        alpha = None if weights is None else weights.detach().float().softmax(0).cpu().tolist()
         result = {"fold": fold, "inner_held_domain": held, "inputs": inputs, "head": head, "seed": seed,
                   "eer": metrics["eer"], "auroc": metrics["auroc"], "best_epoch": best_epoch, "final_epoch": epoch,
                   "seconds": time.monotonic() - started, "layer_alpha": alpha,
-                  "trainable_parameters": config["probe"]["trainable_parameters"], "scope": "inner source development only"}
+                  "trainable_parameters": config[model_key]["trainable_parameters"], "scope": "inner source development only"}
         save_json(run / "metrics.json", result)
-        completion = {"stage": 3, "fold": fold, "seed": seed, "best_epoch": best_epoch, "final_epoch": epoch,
+        completion = {"stage": stage, "fold": fold, "seed": seed, "best_epoch": best_epoch, "final_epoch": epoch,
                       "best_macro_source_dev_eer": best, "macro_scope": "single inner-held source domain; outer macro is across three rotations",
                       "reloaded_inner_dev_eer": metrics["eer"], "best_checkpoint_sha256": selected_hash,
                       "selected_checkpoint_reloaded_and_source_verified": True,
@@ -152,10 +160,10 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
                       "metrics_sha256": checkpoint_digest(run / "metrics.json"),
                       "completed_at": datetime.now(timezone.utc).isoformat()}
         save_json(run / "training_complete.json", completion)
-        save_score_manifest(run, {"stage": 3, "validation_domain": held, "checkpoint_sha256": selected_hash,
+        save_score_manifest(run, {"stage": stage, "validation_domain": held, "checkpoint_sha256": selected_hash,
                                   "training_completion_sha256": checkpoint_digest(run / "training_complete.json"),
                                   "score_sha256": {"source_dev_scores.csv": checkpoint_digest(run / "source_dev_scores.csv")}})
-        verify_probe_completion(run, fold, seed)
+        verify_probe_completion(run, fold, seed, expected_stage=stage)
         logger.info("COMPLETE %s/%s %s %s seed=%d | selected epoch %d, source EER %.4f%%; fresh reload/export verified",
                     fold, held, inputs, head, seed, best_epoch, 100 * metrics["eer"])
         return result
@@ -164,9 +172,9 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
         handler.close()
 
 
-def aggregate(results):
+def aggregate(results, *, input_names=INPUTS, head_names=HEADS):
     seed_macros = []
-    for fold, inputs, head, seed in itertools.product(OUTER_FOLDS, INPUTS, HEADS, SEEDS):
+    for fold, inputs, head, seed in itertools.product(OUTER_FOLDS, input_names, head_names, SEEDS):
         rows = [r for r in results if (r["fold"], r["inputs"], r["head"], r["seed"]) == (fold, inputs, head, seed)]
         if len(rows) != 3:
             continue
@@ -175,7 +183,7 @@ def aggregate(results):
         seed_macros.append({"fold": fold, "inputs": inputs, "head": head, "seed": seed,
                             **{metric: sum(r[metric] for r in rows) / 3 for metric in ("eer", "auroc")}})
     summaries = []
-    for fold, inputs, head in itertools.product(OUTER_FOLDS, INPUTS, HEADS):
+    for fold, inputs, head in itertools.product(OUTER_FOLDS, input_names, head_names):
         rows = [r for r in seed_macros if (r["fold"], r["inputs"], r["head"]) == (fold, inputs, head)]
         if len(rows) == len(SEEDS):
             summaries.append({"fold": fold, "inputs": inputs, "head": head,

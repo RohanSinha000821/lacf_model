@@ -76,7 +76,7 @@ class FeatureSplit:
     clap: torch.Tensor
 
 
-def load_split(root, domain, split, manifest, data_root, *, logger=None):
+def load_split(root, domain, split, manifest, data_root, *, logger=None, last_layer_only=False):
     """Validate once and load compact CPU arrays, avoiding per-example disk reads."""
     if domain not in FOLDS["f1"]["sources"] + ("speechfake",) or split not in ("train", "dev"):
         raise ValueError("Probe cache access is restricted to canonical source train/dev")
@@ -90,7 +90,7 @@ def load_split(root, domain, split, manifest, data_root, *, logger=None):
             or manifest != json.loads((root / domain / split / "complete.json").read_text())):
         raise ValueError(f"Canonical cache membership changed: {domain}/{split}")
     count = manifest["unique_rows"]
-    wavlm = torch.empty(count, 13, 768, dtype=torch.float32)
+    wavlm = torch.empty((count, 768) if last_layer_only else (count, 13, 768), dtype=torch.float32)
     clap = torch.empty(count, 512, dtype=torch.float32)
     view_rows = torch.empty(len(records), 3 if split == "train" else 1, dtype=torch.long)
     record_offset = feature_offset = 0
@@ -120,8 +120,11 @@ def load_split(root, domain, split, manifest, data_root, *, logger=None):
         end = feature_offset + marker["unique_rows"]
         for filename, destination in (("wavlm_layers.npy", wavlm), ("clap_projected.npy", clap)):
             array = np.load(directory / filename, mmap_mode="r", allow_pickle=False)
-            if array.dtype != np.float32 or array.shape != (marker["unique_rows"], *destination.shape[1:]):
+            shape = (marker["unique_rows"], 13, 768) if filename == "wavlm_layers.npy" else (marker["unique_rows"], 512)
+            if array.dtype != np.float32 or array.shape != shape:
                 raise ValueError("Invalid feature dtype or dimensions")
+            if filename == "wavlm_layers.npy" and last_layer_only:
+                array = array[:, -1]
             np.copyto(destination.numpy()[feature_offset:end], array)
         feature_offset = end
         if logger is not None and ((index + 1) % 100 == 0 or index + 1 == len(manifest["chunks"])):
@@ -131,7 +134,7 @@ def load_split(root, domain, split, manifest, data_root, *, logger=None):
     return FeatureSplit(records, ids, labels, view_rows, wavlm, clap)
 
 
-def load_bank(root, data_root, *, logger=None):
+def load_bank(root, data_root, *, logger=None, last_layer_only=False):
     root = Path(root)
     manifest = json.loads((root / "complete.json").read_text())
     if (manifest.get("step") != 2 or checkpoint_digest(root / "config.json") != manifest["config_sha256"]
@@ -140,18 +143,25 @@ def load_bank(root, data_root, *, logger=None):
     domains = tuple(dict.fromkeys(domain for fold in OUTER_FOLDS for domain in FOLDS[fold]["sources"]))
     if set(manifest["splits"]) != {f"{d}/{s}" for d in domains for s in ("train", "dev")}:
         raise ValueError("Missing/unexpected source cache partitions")
-    return {(d, s): load_split(root, d, s, manifest["splits"][f"{d}/{s}"], data_root, logger=logger)
+    return {(d, s): load_split(root, d, s, manifest["splits"][f"{d}/{s}"], data_root, logger=logger,
+                              last_layer_only=last_layer_only)
             for d in domains for s in ("train", "dev")}
 
 
 class FeatureBatches:
     """Vectorized utterance sampling and feature gathers; no worker/file per item."""
-    def __init__(self, datasets, inputs, device, *, training, seed, batch_size=BATCH_SIZE, max_batches=None):
+    def __init__(self, datasets, inputs, device, *, training, seed, batch_size=BATCH_SIZE, max_batches=None,
+                 last_layer_only=False):
         if not datasets or inputs not in INPUTS or batch_size < 1 or max_batches is not None and max_batches < 1:
             raise ValueError("Invalid feature batches")
         if not training and len(datasets) != 1:
             raise ValueError("Score one inner validation domain at a time")
         self.datasets, self.inputs, self.device = datasets, inputs, torch.device(device)
+        if last_layer_only and inputs not in ("last", "concat"):
+            raise ValueError("Compact last-layer batches cannot fit a learned layer mixture")
+        self.last_layer_only = inputs == "last" or last_layer_only
+        if any(d.wavlm.ndim == 2 for d in datasets) and inputs != "clap" and not self.last_layer_only:
+            raise ValueError("A learned mixture requires all thirteen cached layers")
         self.training, self.batch_size = training, batch_size
         self.offsets = np.cumsum([0] + [len(d.labels) for d in datasets]).tolist()
         self.count = self.offsets[-1] if max_batches is None else min(self.offsets[-1], batch_size * max_batches)
@@ -159,7 +169,7 @@ class FeatureBatches:
         self.view_generator = torch.Generator().manual_seed(seed + 1)
         shapes = {"labels": (batch_size,)}
         if inputs != "clap":
-            shapes["wavlm"] = (batch_size, 768) if inputs == "last" else (batch_size, 13, 768)
+            shapes["wavlm"] = (batch_size, 768) if self.last_layer_only else (batch_size, 13, 768)
         if inputs in ("clap", "concat"):
             shapes["clap"] = (batch_size, 512)
         self.buffers = {key: torch.empty(shape, dtype=torch.long if key == "labels" else torch.float32,
@@ -191,7 +201,8 @@ class FeatureBatches:
                 rows = dataset.view_rows[records, views[positions]]
                 self.buffers["labels"][positions] = dataset.labels[records]
                 if "wavlm" in self.buffers:
-                    source = dataset.wavlm[:, -1] if self.inputs == "last" else dataset.wavlm
+                    source = (dataset.wavlm[:, -1] if self.last_layer_only and dataset.wavlm.ndim == 3
+                              else dataset.wavlm)
                     self.buffers["wavlm"][positions] = source[rows]
                 if "clap" in self.buffers:
                     self.buffers["clap"][positions] = dataset.clap[rows]

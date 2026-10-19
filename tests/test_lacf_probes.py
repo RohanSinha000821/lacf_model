@@ -150,6 +150,22 @@ def test_cache_loading_validates_payloads_membership_and_crop_aliases(tmp_path, 
         load_split(root, "asv2019", "eval", manifest, data_root)
 
 
+def test_compact_last_layer_loading_and_batches_match_full_cache_exactly(tmp_path, monkeypatch):
+    root, manifest, data_root, _, _, _ = synthetic_cache(tmp_path, monkeypatch)
+    full = load_split(root, "asv2019", "train", manifest, data_root)
+    compact = load_split(root, "asv2019", "train", manifest, data_root, last_layer_only=True)
+    assert compact.wavlm.shape == (4, 768)
+    torch.testing.assert_close(compact.wavlm, full.wavlm[:, -1], rtol=0, atol=0)
+    for training in (False, True):
+        options = dict(training=training, seed=1234, last_layer_only=True)
+        left = next(iter(FeatureBatches([full], "concat", "cpu", **options)))
+        right = next(iter(FeatureBatches([compact], "concat", "cpu", **options)))
+        for key in left:
+            torch.testing.assert_close(left[key], right[key], rtol=0, atol=0)
+    with pytest.raises(ValueError, match="thirteen"):
+        FeatureBatches([compact], "weighted", "cpu", training=True, seed=1234)
+
+
 @pytest.mark.parametrize("fixed_scores", [False, True])
 def test_source_fit_reload_export_strict_ties_and_no_overwrite(tmp_path, monkeypatch, fixed_scores):
     bank = {("asv5", "train"): features(4), ("cfad", "train"): features(4, seed=2),

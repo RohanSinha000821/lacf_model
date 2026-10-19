@@ -1,5 +1,15 @@
 # SOTA paper reading notes for the LACF comparison
 
+Step4 fidelity check,19October2026: reread the original main DOCX including
+equations/tables and supplementary pipeline/model-plan sections on adapter,
+pre-linear LayerNorm classifier and A4–A9. The stage uses raw last-layer WavLM,
+not the learned mixture studied in Step3. Preserve semantic0.25 where defined;
+A8 removes BF loss, making A9 with BF weight0 the same control. Report that
+alias transparently instead of treating a duplicate fit as independent evidence.
+Diagnostic cached CLAP projections receive the original API/primary FP32
+normalizations. Shared module construction keeps primary state keys/counts;
+exact synthetic backend/loss/gradient parity is checked. No primary redesign.
+
 ## Source-only information-loss probes (owner authorization, 2026-10-18)
 
 Reread the complete main LACF DOCX including tables/equations and relevant original

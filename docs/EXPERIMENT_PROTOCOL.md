@@ -1,5 +1,75 @@
 # Cross-domain experiment protocol (v4)
 
+## Step4 source-only relation/loss diagnostics authorized (2026-10-19)
+
+The owner authorizes A4–A9 after sharing Step3 results, alongside a detailed
+Steps1–3 report. Preserve active AASIST F4 and all target/external holds.
+Use the unchanged primary last-layer WavLM adapter, original concepts/templates,
+temperature0.07, normalization, relation head and applicable loss weights.
+Do not substitute Step3's learned layer mixture into these prescribed controls.
+Fixed text prototype buffers must match the preserved F1/F2 identities; no old
+learned parameter initializes any diagnostic fit. Cached CLAP raw projections
+receive the same two FP32 normalizations as the original API/primary pipeline.
+
+| Variant | Feature groups | Dimension | Semantic / BF loss weights |
+|---|---|---:|---|
+| A4 | p_C | 8 | 0 / 0 (no WavLM adapter) |
+| A5 | p_W | 8 | 0.25 / 0 |
+| A6 | p_W, p_C | 16 | 0.25 / 0 |
+| A7 | A6, difference, agreement | 32 | 0.25 / 0 |
+| A8 | A7, JS, both entropies | 35 | 0.25 / 0 |
+| A9 | Full relation vector | 35 | 0.25 / 0.10 |
+| A9_no_sem | Full relation vector | 35 | 0 / 0.10 |
+| A9_no_bf | Identical to A8; report its result as an alias | 35 | 0.25 / 0 |
+
+All use detection BCE. Undefined view-specific losses are disabled, rather than
+inventing a missing distribution. A4 omits the unused adapter; head input size
+changes with the prescribed feature dimension, with resulting parameter counts
+recorded. A9 retains661479trainable parameters. There are189unique fits:
+7configurations × F1–F3 × 3inner rotations × seeds1234/1235/1236. Alias rows are
+not independent repetitions or additional evidence. Report each seed's equal
+inner-domain macro EER/AUROC, then mean/sample SD across the three seeds.
+
+Reuse the Step3 source-only fit/reload/export loop and batch132, AdamW3e-4,
+wd1e-4, constantLR, maximum30epochs/patience5, BF16 with FP32 sensitive math,
+balanced utterance sampling and one uniform logical cached view per draw.
+Load only last-layer WavLM into RAM, while still verifying original all-layer
+payload hashes, shape/manifest chains and canonical source identities once.
+The cache and its declared BF16 batching differences remain unchanged. These
+fixed-view inner-source diagnostics do not reproduce the original full-domain,
+continuous-random-crop training trajectory. No claim of identical primary EER.
+
+Entry: `python -u -m scripts.lacf.train_ablations --output outputs/lacf_ablations_step4`.
+Fresh output only; source-only timing states are discarded for final fits.
+Each selected checkpoint must pass exact source reload/export checks; a failure
+stops the queue, and source code changes after launch stop the next fit.
+No training resume, automatic retry, later redesign, FT4 or target scoring.
+
+## AASIST execution-only optimization (2026-10-18)
+
+The owner requests faster SSH2 execution with a consistent scientific recipe.
+Use source train/dev only for bounded performance and numerical checks; preserve
+active LACF probes and all held-out-data restrictions. Keep seed1234, batch24,
+FP32, Adam1e-4/wd1e-4, per-update cosine floor5e-6, the existing crops/sampler,
+weighted CE, maximum100epochs/patience5 and strict macro source-dev EER selection.
+
+After the source-only checks and timing report, the owner explicitly authorized
+fresh AASIST F4 training on SSH2: seed1234, 16train/8dev workers, prefetch2,
+CPUthreads2 and cached sinc filters. Preserve active LACF probes. Timing states
+and other folds' weights cannot initialize this run; refuse existing outputs.
+This changes the AASIST F4 training hold only. F4 targets/external evaluation,
+other F4 model launches and later diagnostic stages remain held.
+
+The adapter reverses its two output columns on-device without a Python-list
+index. Train-time source-development inference remains batch one and collects
+FP32 spoof scores before CPU transfer every256batches, flushing the final group.
+Both choices are recorded in run configuration. Verify original/optimized
+source logits, losses, gradients and model updates, and source-score order/EER.
+No old checkpoint or target score is replaced. Worker/prefetch selection uses
+actual source-loader/forward/backward/optimizer timing, with cache/order and
+concurrent-job limitations disclosed; short timing states never initialize a
+final run. Allocated GPU memory alone is not a throughput measurement.
+
 ## Owner-staged information-loss investigation (2026-10-14)
 
 The owner requests diagnostics before redesign, with results shared after each

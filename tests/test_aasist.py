@@ -358,3 +358,28 @@ def test_training_still_rejects_nonfinite_loss():
     with pytest.raises(RuntimeError, match="Nonfinite training loss"):
         train.train_epoch(model, [(torch.full((1, 3), float("nan")), torch.tensor([0]))],
                           optimizer, scheduler, torch.device("cpu"))
+
+
+def test_buffered_source_scoring_preserves_order_partial_flush_and_eer(monkeypatch):
+    class Detector(torch.nn.Module):
+        def forward(self, values):
+            return torch.cat((-values, values), dim=1)
+
+        spoof_score = staticmethod(aasist.AASIST.spoof_score)
+
+    values = torch.linspace(-2, 2, 259).reshape(-1, 1)
+    labels = torch.arange(259) % 2
+    batches = [(values[i:i + 1], labels[i:i + 1]) for i in range(257)]
+    batches.append((values[257:], labels[257:]))
+    observed = {}
+
+    def metric(actual_labels, scores):
+        observed.update(labels=actual_labels, scores=scores)
+        return compute_eer(actual_labels, scores)
+
+    from audio_deepfake_detection.metrics import compute_eer
+    monkeypatch.setattr(train, "compute_eer", metric)
+    result = train.evaluate_eer(Detector(), batches, torch.device("cpu"))
+    expected = (2 * values[:, 0]).tolist()
+    assert observed == {"labels": labels.tolist(), "scores": expected}
+    assert result == compute_eer(labels.tolist(), expected)

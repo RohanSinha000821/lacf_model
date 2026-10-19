@@ -113,7 +113,8 @@ class AASIST(Model):
             raise ValueError(f"Expected [batch, {NUM_SAMPLES}] waveforms")
         # Released AASIST.conf defaults freq_aug=False; do not add RawBoost here.
         _, original_logits = super().forward(waveforms, Freq_aug=False)
-        return original_logits[:, [1, 0]]
+        # Reverse on-device; a Python-list index creates a blocking CUDA copy.
+        return original_logits.flip(1)
 
     @staticmethod
     def spoof_score(logits):

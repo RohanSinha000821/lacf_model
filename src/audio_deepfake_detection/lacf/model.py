@@ -149,6 +149,11 @@ def relation_classifier(input_dim):
                          FP32LayerNorm(64), nn.Linear(64, 16), nn.GELU(), nn.Dropout(0.2), nn.Linear(16, 1))
 
 
+def wavlm_adapter():
+    return nn.Sequential(FP32LayerNorm(768), nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.2),
+                         nn.Linear(512, 512))
+
+
 class LACF(nn.Module):
     """Injected pretrained encoders and fixed prototypes; construction never downloads.
 
@@ -169,8 +174,7 @@ class LACF(nn.Module):
         if prototypes.shape != (8, 512):
             raise ValueError("Expected eight 512-dimensional fixed prototypes")
         self.register_buffer("prototypes", unit_vectors(prototypes.detach(), validate=True).clone())
-        self.adapter = (nn.Sequential(FP32LayerNorm(768), nn.Linear(768, 512), nn.GELU(), nn.Dropout(0.2),
-                                      nn.Linear(512, 512)) if config.needs_wavlm else None)
+        self.adapter = wavlm_adapter() if config.needs_wavlm else None
         self.fusion = fusion if fusion is not None else RelationFeatures(config.feature_groups)
         if not isinstance(self.fusion.output_dim, int) or self.fusion.output_dim < 1:
             raise ValueError("Fusion must declare a positive output_dim")

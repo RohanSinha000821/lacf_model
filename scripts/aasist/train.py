@@ -69,6 +69,7 @@ def train_epoch(model, loader, optimizer, scheduler, device):
     # Keep detached float64 loss statistics on-device; synchronize only for logs.
     loss_sum = torch.zeros((), dtype=torch.float64, device=device)
     count = 0
+    started = time.monotonic()
     for step, (waveforms, labels) in enumerate(loader, 1):
         waveforms = waveforms.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -82,7 +83,11 @@ def train_epoch(model, loader, optimizer, scheduler, device):
         loss_sum.add_(loss.detach().double() * len(labels))
         count += len(labels)
         if step % 100 == 0:
-            print(f"step={step:05d}/{len(loader):05d} loss={float(loss_sum) / count:.6f}", flush=True)
+            elapsed = time.monotonic() - started
+            rate = count / max(elapsed, 1e-9)
+            remaining = (len(loader) - step) * len(labels) / rate
+            print(f"step={step:05d}/{len(loader):05d} loss={float(loss_sum) / count:.6f} "
+                  f"audio/s={rate:.1f} elapsed={elapsed / 60:.1f}min ETA={remaining / 60:.1f}min", flush=True)
     if count == 0:
         raise ValueError("Training loader produced no samples")
     return float(loss_sum) / count
@@ -91,11 +96,17 @@ def train_epoch(model, loader, optimizer, scheduler, device):
 @torch.inference_mode()
 def evaluate_eer(model, loader, device):
     model.eval()
-    labels_all, scores_all = [], []
+    labels_all, scores_all, pending = [], [], []
     for waveforms, labels in loader:
         logits = model(waveforms.to(device, non_blocking=True))
-        scores_all.extend(model.spoof_score(logits).float().cpu().tolist())
+        pending.append(model.spoof_score(logits).float())
         labels_all.extend(labels.tolist())
+        # Keep batch-one inference; avoid synchronizing after every recording.
+        if len(pending) == 256:
+            scores_all.extend(torch.cat(pending).cpu().tolist())
+            pending.clear()
+    if pending:
+        scores_all.extend(torch.cat(pending).cpu().tolist())
     return compute_eer(labels_all, scores_all)
 
 
@@ -152,6 +163,8 @@ def main():
         "data_root": str(args.data_root), "batch_size": BATCH_SIZE, "eval_batch_size": 1,
         "gradient_accumulation_steps": 1, "num_workers": args.num_workers,
         "cache_sinc_filters": args.cache_sinc_filters,
+        "class_reordering": "device_flip; unchanged bona_fide/spoof order",
+        "source_dev_score_transfer": "every_256_batches; unchanged batch-one FP32 scoring",
         "loss_statistics": "detached_float64_on_device_log_every_100_steps",
         "eval_workers": args.eval_workers, "prefetch_factor": args.prefetch_factor,
         "learning_rate": LEARNING_RATE, "minimum_learning_rate": MIN_LEARNING_RATE,

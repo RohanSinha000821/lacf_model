@@ -821,3 +821,23 @@ random crop streams but retain their policy/distribution. Full selected-source
 reload validation remains required. F2 scoring retains batch one and its source
 calibration gate; no F4 or F3 target testing is launched. Local evidence is in
 `outputs/aasist_f3_launch_20261014/` and `outputs/aasist_f2_evaluation_20261014/`.
+
+AASIST execution update, 2026-10-18: class reordering uses a device-local
+column reversal with the same bona-fide/spoof order and checkpoint keys.
+Training's source-development scorer still forwards one recording at a time;
+it transfers FP32 scores to CPU every 256 batches instead of every recording.
+Run configurations record both execution choices. Training logs include actual
+audio throughput and remaining epoch time. Source-only GPU checks compare
+losses, gradients, optimizer updates and source scores; local performance
+records are under `docs/local/aasist_speed_20261018/`. The seed-1234, batch-24
+FP32 recipe, sampling, crops, optimizer and checkpoint-selection rule remain
+unchanged. Historical completed runs and their outputs are preserved.
+
+Step4 LACF diagnostics were separately authorized on19October after Step3
+results were shared. `python -u -m scripts.lacf.train_ablations --output
+outputs/lacf_ablations_step4` runs only the prescribed A4–A9/loss controls,
+using the validated frozen feature cache and the existing source-only fit loop.
+Seven unique configurations give189fresh inner-source/three-seed fits; A9_no_bf
+is reported as the identical A8 result. It preserves the last-layer primary
+architecture, loss weights and approved optimization settings. Existing outputs
+are refused; failures stop the queue. No target/external data or encoder pass.
