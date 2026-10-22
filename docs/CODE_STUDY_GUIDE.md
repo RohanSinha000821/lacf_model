@@ -1,5 +1,18 @@
 # Python code study guide
 
+## Separate C0–C4 package (2026-10-22)
+
+`layer_fusion/model.py` changes only cached WavLM layer fusion, then wraps the
+existing `lacf/ablations.py` full35-D backend with both auxiliary losses disabled.
+`layer_fusion/diagnostics.py` reports source routing distributions after selection.
+`scripts/layer_fusion/train.py` reuses `lacf/probes.py` cache/sampler/scoring and
+`scripts/lacf/train_probes.py` fitting/reload/export with explicit `layer_fusion`
+identity. Original numeric Step3/Step4 behavior is preserved. The separate
+`tests/test_layer_fusion.py` checks precision, common initialization, counts,
+source isolation and fresh reload. See [the experiment guide](LAYER_FUSION_EXPERIMENTS.md)
+for C0–C4 definitions, fixed recipe, output layout and future command. This is
+frozen-cache implementation only; no fine-tuning or target evaluator is added.
+
 This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Adapted SSL feature gating has a source-only trainer and native P1 exporter, validated on synthetic CPU data only. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13, 15 and 16 cover AASIST, LACF and SSL gating. Studying these files does not require starting training or evaluation.
 
 ## 1. The overall flow

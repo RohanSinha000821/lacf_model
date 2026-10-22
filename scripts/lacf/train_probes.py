@@ -44,7 +44,7 @@ def verify_probe_completion(run, fold, seed, *, expected_stage=3):
     completion, digest = verify_completed_run(run, fold, seed)
     config = json.loads((run / "config.json").read_text())
     fit_domains = inner_domains(fold, config["inner_held_domain"])
-    if (expected_stage not in (3, 4) or config["stage"] != expected_stage
+    if (expected_stage not in (3, 4, "layer_fusion") or config["stage"] != expected_stage
             or completion["stage"] != expected_stage or config["fold"] != fold or config["seed"] != seed or seed not in SEEDS
             or config["fit_domains"] != list(fit_domains)
             or completion["best_checkpoint_sha256"] != digest
@@ -65,7 +65,7 @@ def verify_probe_completion(run, fold, seed, *, expected_stage=3):
 def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, logger,
               model_factory=Probe, stage=3, feature_inputs=None, last_layer_only=False):
     fit_domains = inner_domains(fold, held)
-    if seed not in SEEDS or stage not in (3, 4):
+    if seed not in SEEDS or stage not in (3, 4, "layer_fusion"):
         raise ValueError("Unapproved diagnostic seed")
     run.mkdir(parents=True, exist_ok=False)
     handler = logging.FileHandler(run / "training.log")
@@ -80,7 +80,7 @@ def fit_probe(bank, run, *, fold, held, inputs, head, seed, provenance, device, 
                                training=True, seed=seed, last_layer_only=last_layer_only)
         dev = FeatureBatches([bank[held, "dev"]], feature_inputs, device,
                              training=False, seed=seed, last_layer_only=last_layer_only)
-        model_key = "probe" if stage == 3 else "ablation"
+        model_key = {3: "probe", 4: "ablation", "layer_fusion": "layer_fusion"}[stage]
         config = {"stage": stage, "fold": fold, "inner_held_domain": held, "fit_domains": list(fit_domains),
                   "excluded_outer_domain": FOLDS[fold]["target"], "seed": seed, "seed_plan": list(SEEDS),
                   model_key: model.configuration(), "batch_size": BATCH_SIZE, "accumulation": 1,

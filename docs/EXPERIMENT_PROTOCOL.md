@@ -1,5 +1,55 @@
 # Cross-domain experiment protocol (v4)
 
+## Completed AASIST F4 native evaluation authorized (2026-10-22)
+
+The owner now explicitly requests evaluating completed AASIST F4 seed1234.
+This is a narrow exception to the earlier F4 hold for this already selected
+baseline; it does not authorize LACF/layer-fusion F4 or external evaluation.
+Verify completion/checkpoint identity and all training source hashes, then
+freshly reload and rescore the three canonical source dev domains. The existing
+evaluator must reproduce the recorded macro EER before opening ASV2019 LA eval.
+Retain FP32, batch-one first64600-sample/repeat-short scoring, higher-is-spoof
+scores, source-only thresholds and both raw/transductive branches with the
+prespecified1000-resample seed2026 conditional bootstrap. Use8loader workers,
+prefetch2 and CPUthreads2; preserve the concurrent C0–C4 queue. No precision,
+input, architecture or scientific recipe change. The target cache's destination
+presence/size verification and owner-waived full destination checksums remain
+as documented; do not claim a new content-checksum pass. No target-guided model
+selection/tuning, retraining, other evaluation, automatic commit or push.
+
+## C0–C4 launch authorized after review (2026-10-22)
+
+The owner now authorizes small review corrections and the fresh frozen C0–C4
+source-only queue, after full cache validation and bounded GPU/reload preflight.
+Preserve active AASIST F4 and all scientific settings; sharing the small cached
+heads is authorized. Document raw-layer scaling, unequal expert-group averaging
+and ASV2019 method-development exposure separately from untouched F4 eval data.
+Report every condition; do not automatically select a global winner or open
+F4/external targets. No fine-tuning, SSL-gating launch with missing prerequisites,
+automatic commit or push. The older implementation-only status below is historical.
+
+## Separate frozen C0–C4 implementation (owner request, 2026-10-22)
+
+The later owner request authorizes implementing, but not launching, the frozen
+layer-fusion comparison described in [LAYER_FUSION_EXPERIMENTS.md](LAYER_FUSION_EXPERIMENTS.md).
+This supersedes the earlier redesign restriction only for this separate code.
+C0 last layer, C1 uniform average, C2 global13-layer mixture, C3 three residual
+experts/global routing and C4 the same experts/input-dependent routing all retain
+CLAP, the exact anchors, adapter and full35-D relation backend. Detection BCE
+is the sole loss; semantic/BF weights are explicitly zero. Primary three-loss
+LACF and all completed results remain intact. C3/C4 are near capacity-matched,
+with 963,498/967,338 trainable parameters, not exactly equal.
+
+The fixed prospective queue uses F1–F3's existing source sets, three inner
+rotations and seeds1234/1235/1236:135 fresh fits. Preserve batch132/accum1,
+AdamW3e-4/wd1e-4/constantLR, maximum30/patience5 and BF16/sensitiveFP32.
+Canonical source cache validation happens once; loaders use vectorized CPU
+feature gathers, no waveform workers. Source-only GPU timing and selected-score
+reload remain launch-time requirements, not completed validation. New results
+must be reported before partial fine-tuning or later decisions. No F4/external
+or new target access, GPU work, training, downloads or publication is authorized
+by implementation. Existing active AASIST F4 is preserved.
+
 ## Step4 source-only relation/loss diagnostics authorized (2026-10-19)
 
 The owner authorizes A4–A9 after sharing Step3 results, alongside a detailed

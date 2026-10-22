@@ -1,5 +1,18 @@
 # SOTA paper reading notes for the LACF comparison
 
+## Owner-proposed frozen layer fusion (implementation, 2026-10-22)
+
+Reread the actual main DOCX including tables and loss/adapter equations. C0–C4
+are a later owner-requested experiment, not an architecture prescribed by that
+original plan. Preserve its CLAP anchor geometry, full35-D relation features
+and adapter/classifier; explicitly replace the primary three-loss objective
+with detection BCE only for this comparison. The new experts/router are
+isolated in `layer_fusion/`. This adds a no-auxiliary full-relation control (C0),
+uniform and global layer averaging controls, and near-matched global/input
+expert routing. It does not rewrite A4–A9 or rename this comparison as A10.
+See [the experiment guide](LAYER_FUSION_EXPERIMENTS.md). No MoE advantage,
+novelty claim or fine-tuning benefit is established by implementation/CPU tests.
+
 Step4 fidelity check,19October2026: reread the original main DOCX including
 equations/tables and supplementary pipeline/model-plan sections on adapter,
 pre-linear LayerNorm classifier and A4–A9. The stage uses raw last-layer WavLM,

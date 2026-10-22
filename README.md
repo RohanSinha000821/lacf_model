@@ -1,5 +1,17 @@
 # Audio deepfake detection: LODO runs
 
+## Separate frozen layer-fusion experiments (2026-10-22)
+
+C0–C4 are implemented separately under `src/audio_deepfake_detection/layer_fusion/`
+and `scripts/layer_fusion/`, with focused synthetic tests. They retain CLAP,
+anchors and the full 35-D LACF backend, using detection BCE only. The planned
+source-only comparison has 135 fresh fits across F1–F3 inner rotations and
+seeds1234/1235/1236. This authorizes implementation only; no new experiments
+were launched by that implementation task. The later 22 October owner request
+authorizes source-only preflight and the C0–C4 queue; see the local handoff for
+actual launch status. See [configuration and future launch instructions](docs/LAYER_FUSION_EXPERIMENTS.md).
+Primary LACF and SOTA settings are unchanged; fine-tuning remains deferred.
+
 Current owner policy (2026-10-12): completed SOTA runs may be evaluated
 independently; comparison-wide freeze is not required. Earlier confirmation
 examples remain compatible, but the flags are optional. Preserve source-only

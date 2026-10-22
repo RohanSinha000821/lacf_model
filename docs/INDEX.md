@@ -1,5 +1,11 @@
 # Project documentation
 
+## Separate layer-fusion comparison
+
+[LAYER_FUSION_EXPERIMENTS.md](LAYER_FUSION_EXPERIMENTS.md) defines the isolated
+C0–C4 implementation, source-only recipe, output layout, validation gates and
+future launch command. It does not authorize an experiment launch.
+
 Research and implementation notes live here. Keep the root `README.md` for
 onboarding/package metadata and the root `AGENTS.md` for agent instructions.
 No training, evaluation, cache or dataset directory was moved by this cleanup.
