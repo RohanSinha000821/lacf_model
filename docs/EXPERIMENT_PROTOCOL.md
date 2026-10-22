@@ -1,5 +1,37 @@
 # Cross-domain experiment protocol (v4)
 
+## SSL-gating20s training authorized (2026-10-22)
+
+The owner adopts a predetermined source-feasibility adaptation: training-only
+random contiguous crops up to20seconds, after mono decoding and16kHz resampling.
+For inputs longer than320000samples, choose the start uniformly over all valid
+sample positions on each draw, including the final start; retain shorter inputs
+unchanged. Existing worker/sampler seeds govern random draws. Pad each training
+batch to its actual post-crop maximum. Preserve batch5, FP32, Adam3e-6/wd1e-4,
+constantLR, weightedCE+CKA, maximum10/patience3, domain-uniform natural classes,
+noRawBoost and configured internal masking/dropout/layerdrop. Dev/test and source
+threshold calibration remain full-recording batch1. No new masking/bucketing.
+
+Record adaptation_version2 and family `ssl_gating_20s`; preserve failed uncapped
+`ssl_gating` artifacts. This is an explicit training-duration adaptation, not
+an exact paper reproduction or a matched-duration mechanism experiment. It was
+chosen from source duration/memory evidence, not development EER or target
+performance; retain both recipe versions and failed feasibility records.
+No cap/precision/batch alternatives are selected by performance in this change.
+
+The owner authorizes source-only checks followed by fresh F1seed1234 on SSH1,
+and SSH2 code/weight/source readiness for later folds only. No other folds/seeds
+or target evaluations are automatically launched. Existing three-seed family
+plan remains unchanged; only this initial seed1234 run is scheduled. Source
+GPU checks passed12batch5×20s updates, including all24layers, at15.74GiB allocated
+and17.78GiB reserved under19GiB allocator cap. Nine full source-dev examples,
+including60.013s, passed exact fresh reload; this is bounded validation, not full
+source-development calibration or an exhaustive worst-case memory guarantee.
+No activation checkpointing was needed/applied. Full source scoring and strict
+selection continue during training; final target access still needs separate
+authorization and reproduced full source calibration. Fail visibly on OOM;
+never crop dev/test or alter the recipe automatically. Preserve concurrent jobs.
+
 ## Completed AASIST F4 native evaluation authorized (2026-10-22)
 
 The owner now explicitly requests evaluating completed AASIST F4 seed1234.
@@ -467,7 +499,7 @@ Published-method starting values below were checked against the five supplied pa
 | --- | --- | --- | --- | --- | --- |
 | WavLM-WA | random 4 s at 16 kHz; full utterance | **96 × 1 (latest project decision; paper used 32; earlier batch-64 F1 kept separately)** | Adam; WavLM `2e-5`, layer weights/classifier `5e-3` | exponential `gamma=0.95`; 100; 5 (**study choice; paper patience 50**) | weighted CE for `[bona fide, spoof] = [9, 1]`; BF16; 13 learned representation weights. Current script omits the paper's MUSAN/RIR and codec augmentation, initial-weight regularization, and layer-wise LR decay; do not call it an exact reproduction until these are implemented and verified. |
 | AASIST | random 64,600-sample train crop after 16 kHz resampling; first 64,600 samples for dev/test; repeat short audio | **24 × 1** | Adam `1e-4`, weight decay `1e-4`; FP32 | per-update cosine to `5e-6`; 100; 5 (**study-choice patience**) | weighted CE, reorder original class weights to `[0.9, 0.1]` and logits to bona-fide/spoof order; official architecture. Frequency masking off per released config; no RawBoost; no SWA under shared single-best source-only checkpoint policy. |
-| SSL feature gating | full utterance at 16 kHz, dynamic right-zero-padding in training; unpadded full utterance in dev/test | **5 × 1** | Adam `3e-6`, weight decay `1e-4`; FP32, full frontend fine-tuning | constant LR per released optimizer; 10; 3 | XLS-R 300M, 25 states, 128-D SwiGLU gating, four MultiConv blocks, four-head pooling; weighted CE `[0.9, 0.1]` plus differentiable CKA, coefficient 1. No RawBoost per owner cost/fidelity direction on 2026-10-18 and released YAML. Explicit layout/CKA repairs; see the dated adaptation below. |
+| SSL feature gating, version2 | random up-to20s at16kHz, dynamic right-zero-padding in training; unpadded full utterance in dev/test | **5 × 1** | Adam `3e-6`, weight decay `1e-4`; FP32, full frontend fine-tuning | constant LR per released optimizer; 10; 3 | XLS-R300M,25states,128-D SwiGLU,four MultiConv blocks,four-head pooling; weightedCE `[0.9,0.1]` plus differentiableCKA,coefficient1. NoRawBoost; layout/CKA repairs. Owner22October training-cap adaptation; retain full dev/test. |
 | SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, RawBoost; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
 | LHCC | exactly 64,600 samples at 16 kHz, truncated/repeated | **8 × 1** | Adam `1e-6`, weight decay `1e-4` | schedule not reported; 10; 2 | XLS-R 300M low/high-level features, AFM, DCM, weighted BCE and RawBoost. Numeric class weights are not reported. Paper uses bona fide=1/spoof=0 and `1 - p_bona_fide` as spoof score; map labels and scores explicitly. |
 | LACF-10s frozen | one common physical interval, at most 10 s; resample it separately to WavLM 16 kHz and CLAP 48 kHz | configurable; default 4 × 8, effective 32 pending source-only pilot | AdamW `3e-4` for adapter/classifier, weight decay `1e-4`; no automatic LR scaling | constant LR (owner-approved); 30; 5 | BF16 mixed precision with FP32 sensitive calculations; 661,479 trainable adapter/head parameters; seed 1234 only; `BCEWithLogits + 0.25 semantic BCE + 0.10 bona-fide JS`; freeze WavLM and CLAP; eight fixed anchors and temperature `0.07`. |

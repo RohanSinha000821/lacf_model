@@ -14,7 +14,7 @@ from audio_deepfake_detection.protocol import (
     verify_score_digest, verify_source_macro,
 )
 from audio_deepfake_detection.sota.ssl_gating import (
-    SSLFeatureGating, FullAudioDataset, MODEL_CONFIG, UPSTREAM_COMMIT, make_eval_loader,
+    SSLFeatureGating, FullAudioDataset, MODEL_CONFIG, UPSTREAM_COMMIT, TRAIN_MAX_SECONDS, make_eval_loader,
 )
 
 
@@ -27,6 +27,9 @@ def verify_checkpoint(checkpoint, completion, fold_name, seed, run_name):
             or config["upstream_commit"] != UPSTREAM_COMMIT
             or config["precision"] != "float32"
             or config["input_policy"] != MODEL_CONFIG["input_policy"]
+            or config.get("train_input_policy") != MODEL_CONFIG["train_input_policy"]
+            or config.get("train_max_seconds") != TRAIN_MAX_SECONDS
+            or config.get("crop_after_resampling") is not True
             or config["rawboost"] is not False
             or config["selection"] != "strictly_lower_macro_source_dev_eer"
             or config["frontend_config"].get("hidden_size") != 1024
@@ -142,6 +145,8 @@ def main():
         "num_workers": args.num_workers, "prefetch_factor": args.prefetch_factor,
         "eval_batch_size": 1, "cudnn_deterministic": True, "cudnn_benchmark": False,
         "precision": "float32", "input_policy": MODEL_CONFIG["input_policy"],
+        "train_input_policy": MODEL_CONFIG["train_input_policy"],
+        "train_max_seconds": TRAIN_MAX_SECONDS,
     })
     temporary = run_dir / "metrics.json.tmp"
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

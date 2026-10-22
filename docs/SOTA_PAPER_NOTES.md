@@ -428,3 +428,54 @@ The owner elected to keep F1 stopped, with no restart queued. This failure does
 not establish inability to fit a free35GiB device and does not authorize
 changing batch, crops, precision or freeze policy. Local evidence is preserved
 under outputs/ssl_gating_f1_launch_20261018/. No published performance claimed.
+
+
+## SSL-gating source batch feasibility (2026-10-22)
+
+Owner-authorized F1 source GPU checks retained full recordings, end-to-end
+FP32, Adam and CE+CKA, with a19GiB allocator ceiling to leave CUDA overhead
+within an approximately20GiB process budget. Batch5 passed a bounded22.096s
+check but failed after the actual sampler exposed28.128s recordings; batches6
+and8 also failed. These are allocator-budget failures, not proof of full-device
+OOM. Smaller batches were measured but the later explicit owner constraint is
+batch5orhigher; none was adopted. The documented batch5 recipe remains held,
+with no final training/restart or crop/precision/freezing change. Bounded
+source checks are not full-development validation or worst-case memory proof.
+Local evidence: docs/local/ssl_gating_batch_benchmark_20261022T152059/.
+
+Paper section4.3's full-recording dynamic padding is retained. The released
+transform:null makes its64,600-sample max_len inactive. Memory-saving execution
+changes would need source-only parity and throughput checks; no activation
+checkpointing or other optimization was applied by this benchmark.
+
+
+## SSL-gating20s adaptation and launch checks (owner decision, 2026-10-22)
+
+After reviewing the paper, source memory failures and external advice, the owner
+authorizes version2: random contiguous20s training crops only for longer audio,
+after16kHz resampling, with unchanged short audio and dynamic batch padding.
+Retain exact batch5/FP32, optimizer/loss/sampler and full-recording batch-one
+source development/test. Tag new runs ssl_gating_20s and preserve old uncapped
+failures. This supersedes the preceding full-training-input hold; it is a
+source-feasibility adaptation rather than an exact paper reproduction. No cap
+was selected using development EER or target scores. Unmasked padding remains
+a disclosed training/evaluation difference; no masking or bucketing added.
+
+Existing Step2 source metadata on SSH2 was read for F1 sources only. Train
+maxima are13.188s/28.912s/60.013s for ASV2019/ASV5/CFAD;887ASV5 and15CFAD
+train recordings exceed20s. Source dev maxima are11.594s/22.435s/60.013s.
+Canonical counts and the selected longest-dev file headers were verified on
+SSH1; no held-out SpeechFake/ASV5eval/other target inspected for this decision.
+This metadata reuse is not a new full-audio/content-integrity scan.
+
+129 related CUDA-hidden synthetic tests pass. Real-source12batch5×20s updates
+pass with finite losses/gradients, including a deliberate all24-layer execution
+check with ordinary GPU dropout and SpecAugment active:15.740GiB peak allocated,
+17.777GiB reserved under19GiB allocator ceiling. Nine full source-dev scores,
+including60.013s CFAD, reproduce exactly after fresh strict reload. All20s
+stress throughput~1.97audio/s under shared load is not representative epoch
+throughput. Full source calibration remains a later requirement. No activation
+checkpointing or mixed precision needed for these bounded checks. Final F1
+starts from original pretrained XLS-R and fresh head, never timing weights.
+Evidence: outputs/ssl_gating20s_f1_launch_20261022/. SSH2 is prepared for later
+source training only; additional folds/seeds and target evaluation are not queued.

@@ -388,9 +388,11 @@ python scripts/summarize_results.py --model aasist
 The adapted Tran et al. model lives in `sota/ssl_gating.py` and
 `sota/ssl_gating_blocks.py`; the authors' code revision and inherited MIT/Apache
 notices are retained. It has 318,083,586 trainable parameters, including the
-XLS-R frontend. Full recordings are resampled to 16 kHz without waveform
-normalization; training batches are right-zero-padded, source dev/test use batch
-one without padding. No recording is cropped or skipped to fit memory.
+XLS-R frontend. Recordings are resampled to16kHz without waveform normalization.
+Version2, owner-approved22October: training draws a random contiguous20-second
+crop only for longer recordings; shorter inputs stay unchanged. Each batch is
+right-zero-padded to its remaining maximum. Source dev/test retain full
+recordings at batch1, without added padding. No recording is skipped.
 
 The fixed starting recipe is batch 5, FP32, Adam LR `3e-6`, weight decay `1e-4`,
 constant LR, maximum 10 epochs, patience 3, weighted CE `[0.9,0.1]` plus CKA.
@@ -434,17 +436,26 @@ unset. Its exhaustion is not evidence that the recipe cannot fit an otherwise
 free 35 GiB GPU. A future fresh launch needs a new owner instruction and must
 preserve this failed attempt; no crop/skip/batch/precision change was applied.
 
-Commands for later authorized use, after activation and `export PYTHONPATH=src`:
+The22October authorization supersedes the earlier F1 hold for a fresh capped
+run only. Batch5×20s source GPU checks passed at15.74GiB allocated/17.78GiB
+reserved, including all24Transformer layers; nine full source-dev examples
+(including60.013s) reproduced scores exactly after reload. These are bounded
+checks, not full-development validation or a full-epoch speed estimate.
+129 related synthetic CPU tests passed with CUDA hidden. No activation
+checkpointing is needed for the tested cap. Preserve the old uncapped run.
+
+Commands after activation and `export PYTHONPATH=src`:
 
 ```bash
 python scripts/ssl_gating/train.py --help
 # Only after weights and source-only GPU readiness are verified:
-python -u scripts/ssl_gating/train.py --fold f1 --seed 1234 --num-workers 16 --eval-workers 4
+python -u scripts/ssl_gating/train.py --fold f1 --seed 1234 --run-name ssl_gating_20s --num-workers 16 --eval-workers 4 --prefetch-factor 2 --gpu-memory-budget-gib 19
 # Separate later owner-authorized native P1 evaluation of a completed run:
-python -u scripts/ssl_gating/evaluate.py --fold f1 --seed 1234 --num-workers 4
+python -u scripts/ssl_gating/evaluate.py --fold f1 --seed 1234 --run-name ssl_gating_20s --num-workers 4
 ```
 
-Runs use `outputs/ssl_gating/<fold>/<seed>/`. The trainer never opens the target;
+New runs use `outputs/ssl_gating_20s/<fold>/<seed>/`; historical uncapped
+`outputs/ssl_gating/` remains separate. The trainer never opens the target;
 the exporter validates the completed checkpoint, canonical scores and source
 macro EER before target access, then reuses the common metrics/conditional CIs.
 Completed registered CSVs can be reused; partial score recovery and training

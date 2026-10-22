@@ -129,6 +129,36 @@ def test_dynamic_zero_padding_and_batch_one_do_not_repeat_short_audio():
     assert next(iter(loader))[0].shape == (1, 3)
 
 
+@pytest.mark.parametrize("length", [400, 16000, ssl.TRAIN_MAX_SAMPLES])
+def test_training_cap_preserves_short_inputs_exactly(length):
+    wave = torch.arange(length, dtype=torch.float32)
+    assert ssl.training_audio(wave) is wave
+
+
+def test_training_crop_is_contiguous_seeded_varied_and_includes_last_start(monkeypatch):
+    wave = torch.arange(ssl.TRAIN_MAX_SAMPLES + 1000, dtype=torch.float32)
+    torch.manual_seed(1234)
+    first = ssl.training_audio(wave)
+    second = ssl.training_audio(wave)
+    torch.manual_seed(1234)
+    torch.testing.assert_close(ssl.training_audio(wave), first, rtol=0, atol=0)
+    assert first.numel() == ssl.TRAIN_MAX_SAMPLES and first.is_contiguous()
+    assert first[0] != second[0]
+    torch.testing.assert_close(first[1:] - first[:-1], torch.ones(len(first) - 1))
+    monkeypatch.setattr(torch, "randint", lambda high, size: torch.tensor([high - 1]))
+    torch.testing.assert_close(ssl.training_audio(wave), wave[-ssl.TRAIN_MAX_SAMPLES:], rtol=0, atol=0)
+
+
+def test_training_cap_applies_after_resampling_and_never_to_development(tmp_path):
+    path = tmp_path / "long.wav"
+    original = np.linspace(-0.4, 0.4, 21 * 8000, dtype=np.float32)
+    sf.write(path, original, 8000, subtype="FLOAT")
+    train_wave, label = ssl.FullAudioDataset([(str(path), 1)], training=True)[0]
+    dev_wave, dev_label = ssl.FullAudioDataset([(str(path), 1)])[0]
+    assert train_wave.numel() == 20 * 16000 and label == dev_label == 1
+    assert dev_wave.numel() == 21 * 16000
+
+
 def test_equal_domain_natural_class_sampler_and_no_dropped_batch():
     sets = [[(torch.arange(10.0 + i), j % 2) for j in range(n)] for i, n in enumerate((2, 4, 6))]
     loader = ssl.make_train_loader(sets, num_workers=0, seed=1234)
@@ -222,6 +252,8 @@ def test_trainer_selects_macro_source_eer_and_preserves_ties(tmp_path, monkeypat
     assert best["macro_dev_eer"] == pytest.approx(0.3)
     assert complete["best_checkpoint_sha256"] == protocol.checkpoint_digest(directory / "best.pt")
     assert best["config"]["rawboost"] is False and best["config"]["scheduler"] == "constant"
+    assert best["config"]["train_max_seconds"] == 20
+    assert best["config"]["crop_after_resampling"] is True
     assert best["config"]["trainable_parameter_count"] == best["config"]["parameter_count"]
     assert opened == [(domain, split) for domain in protocol.FOLDS["f3"]["sources"] for split in ("train", "dev")]
     assert not (directory / "target_scores.csv").exists()
@@ -245,6 +277,8 @@ def evaluation_run(tmp_path, monkeypatch):
               "rawboost": False, "selection": "strictly_lower_macro_source_dev_eer",
               "frontend_config": {"hidden_size": 1024, "num_hidden_layers": 24},
               "input_policy": ssl.MODEL_CONFIG["input_policy"],
+              "train_input_policy": ssl.MODEL_CONFIG["train_input_policy"],
+              "train_max_seconds": 20, "crop_after_resampling": True,
               "sources": list(protocol.FOLDS["f1"]["sources"]), "target": "speechfake", "target_split": "test"}
     checkpoint = {"config": config, "fold": "f1", "epoch": 2, "macro_dev_eer": 0.0,
                   "model_state_dict": Detector().state_dict()}
@@ -302,7 +336,8 @@ def test_source_reload_disagreement_blocks_target(evaluation_run):
 
 
 @pytest.mark.parametrize("key,value", [("seed", 2345), ("precision", "bfloat16"), ("rawboost", True),
-                                       ("run_name", "other"), ("target_split", "dev")])
+                                       ("run_name", "other"), ("target_split", "dev"),
+                                       ("train_max_seconds", 10), ("crop_after_resampling", False)])
 def test_checkpoint_identity_and_recipe_mismatch_rejected(evaluation_run, key, value):
     _, _, checkpoint, completion = evaluation_run
     checkpoint = copy.deepcopy(checkpoint)

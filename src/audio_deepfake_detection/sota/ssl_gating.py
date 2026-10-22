@@ -1,4 +1,4 @@
-"""Full-utterance XLS-R feature gating, adapted to the source-only LODO study.
+"""XLS-R feature gating with capped training and full-recording evaluation.
 
 The released block/time reshape and detached CKA are repaired explicitly.
 No RawBoost, waveform normalization or padding masks are added. The pretrained
@@ -17,8 +17,10 @@ UPSTREAM_COMMIT = "4de821cad840ef6b4f78905f9cce0523c956d988"
 PRETRAINED_MODEL = "facebook/wav2vec2-xls-r-300m"
 PRETRAINED_REVISION = "1a640f32ac3e39899438a2931f9924c02f080a54"
 SAMPLE_RATE = 16000
+TRAIN_MAX_SECONDS = 20
+TRAIN_MAX_SAMPLES = SAMPLE_RATE * TRAIN_MAX_SECONDS
 MODEL_CONFIG = {
-    "architecture": "SSLFeatureGating", "adaptation_version": 1,
+    "architecture": "SSLFeatureGating", "adaptation_version": 2,
     "pretrained_model": PRETRAINED_MODEL, "pretrained_revision": PRETRAINED_REVISION,
     "hidden_states": 25, "hidden_size": 1024, "projection": 128,
     "blocks": 4, "linear_units": 1024, "kernels": [3, 7, 11, 15],
@@ -26,14 +28,24 @@ MODEL_CONFIG = {
     "attention_heads": 4, "attention_implementation": "sdpa",
     "feature_layout": "per_time_block_concatenation", "cka": "differentiable_biased_linear",
     "rawboost": False, "input_policy": "16kHz_full_utterance_no_normalization_no_mask",
+    "train_input_policy": "random_up_to_20s_after_16kHz_resampling",
 }
 
 
+def training_audio(waveform):
+    """Keep short inputs unchanged; uniformly crop long inputs on every draw."""
+    if waveform.numel() <= TRAIN_MAX_SAMPLES:
+        return waveform
+    start = int(torch.randint(waveform.numel() - TRAIN_MAX_SAMPLES + 1, (1,)).item())
+    return waveform[start:start + TRAIN_MAX_SAMPLES].contiguous()
+
+
 class FullAudioDataset(Dataset):
-    def __init__(self, records: list[Record]):
+    def __init__(self, records: list[Record], *, training=False):
         if not records:
             raise ValueError("Dataset contains no records")
         self.records = list(records)
+        self.training = training
 
     def __len__(self):
         return len(self.records)
@@ -46,6 +58,8 @@ class FullAudioDataset(Dataset):
             raise ValueError(f"Expected nonempty finite mono audio: {path}")
         if label not in (0, 1):
             raise ValueError(f"Invalid label: {label}")
+        if self.training:
+            waveform = training_audio(waveform)
         return waveform, label
 
 

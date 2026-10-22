@@ -13,7 +13,7 @@ source isolation and fresh reload. See [the experiment guide](LAYER_FUSION_EXPER
 for C0–C4 definitions, fixed recipe, output layout and future command. This is
 frozen-cache implementation only; no fine-tuning or target evaluator is added.
 
-This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Adapted SSL feature gating has a source-only trainer and native P1 exporter, validated on synthetic CPU data only. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13, 15 and 16 cover AASIST, LACF and SSL gating. Studying these files does not require starting training or evaluation.
+This guide describes the current implementation. WavLM-WA and AASIST have training/scoring paths; LACF now has its primary frozen model and source-only trainer, with synthetic CPU checks and recorded source-only GPU validation; the 2026-10-09 optimization requires a new duration-specific freeze. The 2026-10-07 AASIST pilot passed; full source-dev/reload validation remains a separate gate. Adapted SSL feature gating has a source-only trainer and native P1 exporter; version2 training-only20s crops have passed synthetic CPU and bounded real-source GPU/reload checks. Full selected-checkpoint source validation remains required before evaluation. Other SOTA models remain planned. Start with the WavLM runtime flow below, then follow the reading order. Sections 13, 15 and 16 cover AASIST, LACF and SSL gating. Studying these files does not require starting training or evaluation.
 
 ## 1. The overall flow
 
@@ -595,7 +595,7 @@ configuration; CKA detachment and block/time layout are repaired explicitly.
 
 | File/function | Responsibility |
 |---|---|
-| `sota/ssl_gating.py`: `FullAudioDataset`, `collate_audio` | Full mono audio → resample 16 kHz → dynamic right-zero-padding, labels 0/1. No crops, waveform normalization, repetition or padding mask. |
+| `sota/ssl_gating.py`: `FullAudioDataset`, `training_audio`, `collate_audio` | Mono decode → resample16kHz → training-only uniform random crop up to20s → dynamic right-zero-padding, labels0/1. `training=False` retains full recordings for dev/test. No normalization, repetition or padding mask. |
 | `make_train_loader`, `make_eval_loader` | Equal-domain/natural-class replacement sampler, N draws, batch 5, no dropped batch; batch-one dev/test. |
 | `SSLFeatureGating` | Offline pinned pretrained XLS-R → 25 projected/gated states summed → four MultiConv blocks concatenated per time → four-head attentive mean/std pooling → SELU classifier. Public logits are bona-fide/spoof. |
 | `ssl_gating_blocks.py` | Only the selected licensed concat-fusion block and pooling paths; no ESPnet/Lightning runtime. Block normalization epsilon is 1e-12. |
@@ -604,7 +604,7 @@ configuration; CKA detachment and block/time layout are repaired explicitly.
 | `scripts/ssl_gating/evaluate.py` | Completed checkpoint verification → strict reload from saved frontend config → source CSV/calibration and macro reproduction → native target CSV → shared metrics and conditional CIs. |
 | `tests/test_ssl_gating.py` | Synthetic CPU gradient, layout, full-input, sampler, source-isolation, reload and manifest/metric safeguards. |
 
-Artifacts follow `outputs/ssl_gating/<fold>/<seed>/`, compatible with the common
+New version2 artifacts follow `outputs/ssl_gating_20s/<fold>/<seed>/`, compatible with the common
 score-only evaluator and summary reader. The three-seed plan is unchanged.
 The trainer refuses existing artifacts; its run lock prevents simultaneous
 writers. There is no training resume or fold queue. Native P1 reuses complete
@@ -625,3 +625,14 @@ other fold. Failed-run config/log remain at outputs/ssl_gating/f1/1234/;
 preflight, code snapshot, launch/failure/hold records remain in the local launch
 folder. Existing artifacts must be preserved before any future owner-authorized
 fresh attempt; training resume is unavailable.
+
+Owner22October supersedes that hold after source-only checks: version2 caps
+training at20s after resampling, retains batch5/FP32 and full dev/test, and
+starts fresh F1seed1234 only. The evaluator binds the20s training metadata and
+retains full-recording source calibration/target scoring. Old uncapped artifacts
+remain untouched. Tests cover inclusive crop bounds, repeated-draw variation,
+seed replay, unchanged short inputs, resampling order and uncropped development.
+Real-source maximum-input and bounded exact-reload checks passed; complete
+selected-checkpoint/source validation remains required before later evaluation.
+SSH2 preparation is not permission to launch other folds. No training resume,
+activation checkpointing or precision change is implemented by this adaptation.

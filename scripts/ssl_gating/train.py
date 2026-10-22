@@ -16,7 +16,7 @@ import torch
 from audio_deepfake_detection.metrics import compute_eer
 from audio_deepfake_detection.protocol import FOLDS, checkpoint_digest, read_dataset, validate_run_name
 from audio_deepfake_detection.sota.ssl_gating import (
-    FullAudioDataset, MODEL_CONFIG, SSLFeatureGating, UPSTREAM_COMMIT, cka_loss,
+    FullAudioDataset, MODEL_CONFIG, SSLFeatureGating, UPSTREAM_COMMIT, TRAIN_MAX_SECONDS, cka_loss,
     make_eval_loader, make_train_loader,
 )
 
@@ -125,7 +125,7 @@ def run(args, root, run_dir):
         dev_records = read_dataset(domain, "dev", args.data_root)
         counts[domain] = {"train": len(train_records), "dev": len(dev_records)}
         print(f"{domain}: {counts[domain]}", flush=True)
-        train_sets.append(FullAudioDataset(train_records))
+        train_sets.append(FullAudioDataset(train_records, training=True))
         dev_loaders[domain] = make_eval_loader(FullAudioDataset(dev_records),
                                               num_workers=args.eval_workers, prefetch_factor=args.prefetch_factor)
     loader = make_train_loader(train_sets, batch_size=BATCH_SIZE, seed=args.seed,
@@ -148,6 +148,8 @@ def run(args, root, run_dir):
         "selection": "strictly_lower_macro_source_dev_eer", "drop_last": False,
         "sampler": "equal_domain_natural_class_replacement", "rawboost": False,
         "input_policy": MODEL_CONFIG["input_policy"], "label_order": ["bona_fide", "spoof"],
+        "train_input_policy": MODEL_CONFIG["train_input_policy"],
+        "train_max_seconds": TRAIN_MAX_SECONDS, "crop_after_resampling": True,
         "parameter_count": sum(p.numel() for p in model.parameters()),
         "trainable_parameter_count": sum(p.numel() for p in model.parameters() if p.requires_grad),
         "torch_version": str(torch.__version__), "numpy_version": np.__version__,
