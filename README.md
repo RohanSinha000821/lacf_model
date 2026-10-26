@@ -1,5 +1,12 @@
 # Audio deepfake detection: LODO runs
 
+Owner authorization,24October2026: D1/D2 readout controls extend the same
+`layer_fusion/` package. They compare WavLM anchor probabilities with a direct
+normalized-adapter readout, using detection BCE only and no CLAP audio.
+Use `--comparison readouts` for54fresh source-only fits; the default C0–C4 queue
+is unchanged. See [design, controls and launch instructions](docs/LAYER_FUSION_EXPERIMENTS.md).
+Primary LACF is preserved; this does not select its final architecture.
+
 ## Separate frozen layer-fusion experiments (2026-10-22)
 
 C0–C4 are implemented separately under `src/audio_deepfake_detection/layer_fusion/`
@@ -779,15 +786,18 @@ to the actual metadata schema or counts still require a source-only data check.
 
 ## Local results report
 
-The owner-requested [WavLM F1–F3 supervisor report](docs/wavlm_f1_f3_report/README.md)
-is stored in a Git-ignored folder under `docs/`. It includes editable LaTeX,
-a PDF reading copy, complete recorded P1 metrics and scientific plots. See its
-README for provenance, regeneration commands and the LaTeX compiler limitation.
-F4 remains necessary for the complete four-fold report.
+The current [combined results report](docs/local/all_results_20261026/report.md)
+and its PDF are stored in a Git-ignored folder. They distinguish completed
+native evaluations, source-only diagnostics and unfinished training, with saved
+metrics, confidence intervals and provenance. These local reports and result
+files are not part of a code-only clone.
 
-A separate [concise WavLM F1–F3 results report](docs/wavlm_f1_f3_short_report/README.md) presents the same
-completed folds with simpler tables and an explicit bootstrap explanation.
-It preserves the detailed companion report; both numerical reports remain local-only.
+Superseded WavLM-only reports and older diagnostic-report versions are preserved
+under `docs/local/archive/20261026/`; completed launch/evaluation wrapper records
+are under `outputs/archive/20261026/`. Each archive has an `index.json` mapping
+old paths to retained files. Model runs, checkpoints, scores, feature caches and
+active launch records remain in their existing locations. See
+[the documentation index](docs/INDEX.md) for the current reading order.
 
 ## Entry points
 

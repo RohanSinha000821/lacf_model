@@ -1,5 +1,13 @@
 # Python code study guide
 
+24October2026: `layer_fusion/model.py:ReadoutDetector` implements D1/D2 with
+the existing C2 mixture/adapter and8-D anchor or512-D direct readout. The same
+runner selects54source-only fits with `--comparison readouts`; default C0–C4
+behavior and the shared fit/reload/export loop are retained. No SOTA/primary
+LACF modules change. The experiment guide records head-capacity and pairing
+limits; tests cover C2 initialization/dropout, no-CLAP forward, gradients and
+the complete synthetic54-fit queue.
+
 ## Separate C0–C4 package (2026-10-22)
 
 `layer_fusion/model.py` changes only cached WavLM layer fusion, then wraps the

@@ -44,18 +44,22 @@ Ignore rules do not delete local files and do not untrack already tracked files.
 Any deliberate release of unpublished results or supplied documents needs a
 separate owner decision and, for documents, appropriate publication rights.
 
-## Local supervisor report
+## Local supervisor reports
 
-[WavLM F1–F3 report](wavlm_f1_f3_report/README.md) contains an editable standalone
-LaTeX document, a PDF reading copy, scientific plots and verified report data.
-The entire folder is intentionally ignored because it contains unpublished
-results. It is a descriptive report of completed native P1 folds; it does not
-change the experiment protocol or establish the final four-fold comparison.
-Its README records the PDF export method and LaTeX compilation status.
+The current [combined results report](local/all_results_20261026/report.md)
+includes a PDF, editable text, unrounded result tables and verification evidence.
+It separates completed native P1 evaluations from source-only diagnostics and
+unfinished runs. The latest detailed diagnostic report remains under
+`docs/claude/lacf_diagnostics_20261024T1838/`; the current short architecture
+brief is listed in [the local index](local/README.md).
 
-A separate [concise WavLM F1–F3 results report](wavlm_f1_f3_short_report/README.md) presents the same
-completed folds with simpler tables and an explicit bootstrap explanation.
-It preserves the detailed companion report; both numerical reports remain local-only.
+Superseded WavLM-only reports and older diagnostic-report versions are preserved
+under `docs/local/archive/20261026/`. Its `index.json` maps their original paths.
+Completed operational records are similarly retained under
+`outputs/archive/20261026/`. Checkpoints, score exports, feature caches and active
+launch records retain their original paths. These reports/archives are ignored
+by Git and unavailable in a code-only clone; archiving does not publish or delete
+their contents.
 
 ## Documentation maintenance
 

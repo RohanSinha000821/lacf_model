@@ -1,5 +1,47 @@
 # Cross-domain experiment protocol (v4)
 
+## Multi-layer readout controls D1/D2 authorized (2026-10-24)
+
+The owner authorizes implementation and launch in the existing `layer_fusion/`
+package after synthetic CPU and bounded source GPU/reload checks. D1 uses C2's
+learned13-layer mixture and normalized768→512→512 adapter, then the unchanged
+eight-anchor softmax at0.07 and an8→64→16→1 head. D2 uses the same normalized
+512-D adapter embedding directly with a512→64→16→1 head. Both heads retain
+pre-linear LayerNorm/GELU/dropout0.2. Both disable CLAP audio and semantic/BF
+losses; detection BCE only. D1 retains frozen CLAP text prototypes; D2 has no
+anchor buffer. These are new controls, not replacements for primary LACF.
+
+Preserve the C-series source cache/views, inner F1–F3 rotations, seeds1234/1235/1236,
+batch132/accum1, AdamW3e-4/wd1e-4/constantLR, maximum30/patience5 and BF16/FP32.
+This gives54fresh fits, with strict inner-held-dev EER selection and exact
+selected-score reload/export before advancement. Match fresh C2 adapter,
+zero-initialized mixture logits, classifier64→16→1 tail and subsequent dropout
+RNG. First head blocks necessarily differ:659710/692974trainable parameters;
+these are not capacity-identical controls. Mixture coefficients adapt separately
+with each backend; only the starting rule and sampled views are matched.
+
+Use `--comparison readouts` and a fresh output under `outputs/layer_fusion/`.
+Preserve completed C0–C4 and active SSLF2. Validate cache payloads once, then use
+the existing vectorized source-feature path without audio workers or encoder
+passes. No global winner is selected automatically; no F4 selection-policy
+change, new target/external access, fine-tuning or later experiment is authorized.
+ASV2019 source use in F1–F3 remains disclosed method-development exposure.
+See [the comparison guide](LAYER_FUSION_EXPERIMENTS.md) for interpretation limits.
+
+## SSL-gating20s F2 launch authorized on SSH2 (2026-10-22)
+
+The owner now explicitly requests fresh F2seed1234 using the existing prepared
+source-readiness evidence and pinned XLS-R weights. Retain the version2 recipe
+below, including training-only20s crops, full-recording dev/test, batch5/FP32,
+Adam3e-6/wd1e-4/constantLR, CE+CKA, maximum10/patience3,16train/4dev workers,
+prefetch2 and19GiB allocator cap. This adds F2 launch permission only; it does
+not queue F3/F4, extra seeds or target evaluation. Preserve C0–C4 and AASIST
+F4 evaluation. Fresh initialization from the official pretrained frontend and
+new backend only; no timing/oldfold checkpoint, resume or automatic retry.
+Source-only strict macro EER selection remains unchanged. Failed probes and
+historical uncapped runs stay preserved; stop on failure without changing the
+recipe. Launch status/resources/evidence remain in the ignored local handoff.
+
 ## SSL-gating20s training authorized (2026-10-22)
 
 The owner adopts a predetermined source-feasibility adaptation: training-only

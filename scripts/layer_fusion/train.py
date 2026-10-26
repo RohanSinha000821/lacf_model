@@ -1,4 +1,4 @@
-"""Fresh C0–C4 frozen-cache comparison; source-only, sequential, no resume."""
+"""Fresh C0–C4 or D1/D2 frozen-cache comparison; source-only, no resume."""
 
 import argparse
 import hashlib
@@ -18,7 +18,9 @@ from audio_deepfake_detection.lacf.probes import (
 )
 from audio_deepfake_detection.lacf.training import make_optimizer, train_epoch
 from audio_deepfake_detection.layer_fusion.diagnostics import source_diagnostics
-from audio_deepfake_detection.layer_fusion.model import CONDITIONS, LayerFusionDetector
+from audio_deepfake_detection.layer_fusion.model import (
+    CONDITIONS, READOUT_CONDITIONS, LayerFusionDetector, ReadoutDetector,
+)
 from audio_deepfake_detection.protocol import FOLDS, checkpoint_digest
 from scripts.lacf.train_ablations import fixed_prototypes
 from scripts.lacf.train_probes import aggregate, fit_probe, save_json, seed_all, verify_probe_completion
@@ -29,17 +31,45 @@ EXPECTED_FITS = len(CONDITIONS) * len(OUTER_FOLDS) * 3 * len(SEEDS)
 STAGE = "layer_fusion"
 
 
-def timing_check(bank, output, factory, logger):
+def readout_initialization_check(model, factory, batch, cuda_rng):
+    """Bounded source check against a fresh C2, never a fitted checkpoint."""
+    with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
+        seed_all(1234)
+        reference = factory("C2", "relation").cuda()
+        for name, value in reference.backend.adapter.state_dict().items():
+            if not torch.equal(value, model.adapter.state_dict()[name]):
+                raise ValueError("C2/readout adapter initialization differs")
+        for index in range(4, len(model.classifier)):
+            for name, value in reference.backend.classifier[index].state_dict().items():
+                if not torch.equal(value, model.classifier[index].state_dict()[name]):
+                    raise ValueError("C2/readout classifier tail initialization differs")
+        torch.cuda.set_rng_state(cuda_rng)
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            expected = reference(batch)["v_w"]
+        expected_rng = torch.cuda.get_rng_state()
+        torch.cuda.set_rng_state(cuda_rng)
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            actual = model(batch)["v_w"]
+        if not torch.equal(expected, actual) or not torch.equal(expected_rng, torch.cuda.get_rng_state()):
+            raise ValueError("C2/readout normalized adapter output or dropout RNG differs")
+
+
+def timing_check(bank, output, factory, logger, *, conditions=None):
     """Bounded GPU preflight before final fits; never reuse these trained weights."""
     rows, initial_checks, paired_expert_scores = [], [], None
-    for condition in CONDITIONS:
+    conditions = CONDITIONS if conditions is None else conditions
+    readouts = conditions == READOUT_CONDITIONS
+    head, feature_inputs = ("readout", "weighted") if readouts else ("relation", "concat")
+    for condition in conditions:
         seed_all(1234)
-        model = factory(condition, "relation").cuda()
+        model = factory(condition, head).cuda()
         optimizer = make_optimizer(model)
         datasets = [bank[d, "train"] for d in inner_domains("f2", "asv2019")]
         initial_loader = FeatureBatches(datasets, "concat", "cuda", training=True, seed=1234, max_batches=1)
         batch = next(iter(initial_loader))
         cpu_rng, cuda_rng = torch.get_rng_state(), torch.cuda.get_rng_state()
+        if readouts:
+            readout_initialization_check(model, factory, batch, cuda_rng)
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
             initial = model(batch)
             initial_loss = model.objective(initial, batch["labels"])["total"]
@@ -62,21 +92,21 @@ def timing_check(bank, output, factory, logger):
         torch.cuda.set_rng_state(cuda_rng)
         del batch, initial, initial_loss, initial_loader
         for batches in (8, 64):
-            loader = FeatureBatches(datasets, "concat", "cuda", training=True, seed=1234, max_batches=batches)
+            loader = FeatureBatches(datasets, feature_inputs, "cuda", training=True, seed=1234, max_batches=batches)
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             started = time.monotonic()
             losses, _ = train_epoch(model, loader, optimizer, "cuda", accumulation_steps=1)
             torch.cuda.synchronize()
             seconds = time.monotonic() - started
-        dev = FeatureBatches([bank["asv2019", "dev"]], "concat", "cuda", training=False, seed=1234)
+        dev = FeatureBatches([bank["asv2019", "dev"]], feature_inputs, "cuda", training=False, seed=1234)
         started = time.monotonic()
         scores, metrics = score_probe(model, dev)
         dev_seconds = time.monotonic() - started
         path = output / f"timing_{condition}.pt"
         torch.save({"scope": "timing only; never initialize final fits", "model_state_dict":
                     {k: v.detach().cpu() for k, v in model.state_dict().items()}}, path)
-        reloaded = factory(condition, "relation").cuda()
+        reloaded = factory(condition, head).cuda()
         reloaded.load_state_dict(torch.load(path, map_location="cpu", weights_only=True)["model_state_dict"], strict=True)
         other, other_metrics = score_probe(reloaded, dev)
         if not torch.equal(scores, other) or metrics != other_metrics:
@@ -99,18 +129,21 @@ def timing_check(bank, output, factory, logger):
                            + len(bank[held, "dev"].labels) * row["seconds_per_dev_record"])
     save_json(output / "timing.json", {"stage": STAGE, "source_only": True, "measurements": rows,
               "maximum_epoch_estimate_hours": upper / 3600, "recipe_candidates": 0,
-              "initialization_checks": initial_checks, "c3_c4_initial_gpu_predictions_and_dropout_rng_bit_exact": True,
+              "initialization_checks": initial_checks,
+              **({"c2_readout_adapter_and_dropout_rng_bit_exact": True} if readouts else
+                 {"c3_c4_initial_gpu_predictions_and_dropout_rng_bit_exact": True}),
               "scope": "8 warmup + 64 measured updates per fixed condition; full ASV2019 source-dev/reload",
               "limitations": "short timing extrapolation; excludes routing reports/export/I/O; early stopping reduces work"})
     logger.info("Preflight passed; max-30-epoch training/scoring estimate %.1f hours", upper / 3600)
 
 
 def fit_condition(bank, run, *, condition, fold, held, seed, provenance, device, logger, factory):
-    result = fit_probe(bank, run, fold=fold, held=held, inputs=condition, head="relation", seed=seed,
+    head, features = ("readout", "weighted") if condition in READOUT_CONDITIONS else ("relation", "concat")
+    result = fit_probe(bank, run, fold=fold, held=held, inputs=condition, head=head, seed=seed,
                        provenance=provenance, device=device, logger=logger, model_factory=factory,
-                       stage=STAGE, feature_inputs="concat")
+                       stage=STAGE, feature_inputs=features)
     checkpoint = torch.load(run / "best.pt", map_location="cpu", weights_only=True)
-    selected = factory(condition, "relation").to(device)
+    selected = factory(condition, head).to(device)
     selected.load_state_dict(checkpoint["model_state_dict"], strict=True)
     diagnostics = source_diagnostics(selected, bank, fold, seed, device)
     diagnostics.update({"checkpoint_sha256": checkpoint_digest(run / "best.pt"),
@@ -127,10 +160,13 @@ def write_summary(output, summary):
     temporary.replace(output / "summary.json")
 
 
-def run_queue(bank, output, factory, provenance, device, logger):
+def run_queue(bank, output, factory, provenance, device, logger, *, conditions=None):
     """Run fixed fresh fits after preflight; factored for synthetic CPU coverage."""
+    conditions = CONDITIONS if conditions is None else conditions
+    expected_fits = len(conditions) * len(OUTER_FOLDS) * 3 * len(SEEDS)
+    heads = ("readout",) if conditions == READOUT_CONDITIONS else ("relation",)
     results = []
-    for condition, fold, seed in itertools.product(CONDITIONS, OUTER_FOLDS, SEEDS):
+    for condition, fold, seed in itertools.product(conditions, OUTER_FOLDS, SEEDS):
         for held in FOLDS[fold]["sources"]:
             for name, expected in provenance["code_sha256"].items():
                 if checkpoint_digest(ROOT / name) != expected:
@@ -138,12 +174,12 @@ def run_queue(bank, output, factory, provenance, device, logger):
             run = output / condition / f"inner_{held}" / fold / str(seed)
             results.append(fit_condition(bank, run, condition=condition, fold=fold, held=held, seed=seed,
                                          provenance=provenance, device=device, logger=logger, factory=factory))
-            summary = {**aggregate(results, input_names=CONDITIONS, head_names=("relation",)),
-                       "stage": STAGE, "expected_fits": EXPECTED_FITS, "complete": False,
+            summary = {**aggregate(results, input_names=conditions, head_names=heads),
+                       "stage": STAGE, "expected_fits": expected_fits, "complete": False,
                        "fits": results}
             write_summary(output, summary)
-            logger.info("QUEUE %d/%d source fits reload-verified; diagnostics saved", len(results), EXPECTED_FITS)
-    if len(results) != EXPECTED_FITS or len(summary["three_seed_summary"]) != len(CONDITIONS) * len(OUTER_FOLDS):
+            logger.info("QUEUE %d/%d source fits reload-verified; diagnostics saved", len(results), expected_fits)
+    if len(results) != expected_fits or len(summary["three_seed_summary"]) != len(conditions) * len(OUTER_FOLDS):
         raise ValueError("Missing layer-fusion inner rotations/seeds")
     for result in results:
         run = Path(result["run"])
@@ -155,7 +191,8 @@ def run_queue(bank, output, factory, provenance, device, logger):
     save_json(output / "complete.json", {"stage": STAGE, "verified_fits": len(results),
               "summary_sha256": checkpoint_digest(output / "summary.json"),
               "completed_at": datetime.now(timezone.utc).isoformat(), "stop_after_queue": True})
-    logger.info("C0–C4 comparison complete; report source results and stop. No fine-tuning or target evaluation.")
+    logger.info("%s comparison complete; report source results and stop. No fine-tuning or target evaluation.",
+                "/".join(conditions))
 
 
 def main():
@@ -163,7 +200,10 @@ def main():
     parser.add_argument("--cache-root", type=Path, default=ROOT / "outputs/lacf_diagnostic_features_v1")
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--comparison", choices=("fusion", "readouts"), default="fusion",
+                        help="Original C0–C4 queue or owner-approved D1/D2 readout controls")
     args = parser.parse_args()
+    conditions = READOUT_CONDITIONS if args.comparison == "readouts" else CONDITIONS
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(including_emulation=False):
         raise RuntimeError("Native CUDA BF16 required; no precision fallback")
     args.output.mkdir(parents=True, exist_ok=False)
@@ -184,20 +224,25 @@ def main():
                   "torch": str(torch.__version__), "transformers": transformers.__version__,
                   "cuda": torch.version.cuda, "gpu": torch.cuda.get_device_name()}
     def factory(condition, head):
-        if head != "relation":
-            raise ValueError("C0–C4 retain the full primary relation classifier")
-        return LayerFusionDetector(condition, prototypes)
-    configs = {name: factory(name, "relation").configuration() for name in CONDITIONS}
+        if condition in READOUT_CONDITIONS and head == "readout":
+            return ReadoutDetector(condition, prototypes)
+        if condition in CONDITIONS and head == "relation":
+            return LayerFusionDetector(condition, prototypes)
+        raise ValueError("Unexpected comparison condition/head")
+    head = "readout" if args.comparison == "readouts" else "relation"
+    configs = {name: factory(name, head).configuration() for name in conditions}
     save_json(args.output / "queue_config.json", {"stage": STAGE, "conditions": configs,
-              "folds": list(OUTER_FOLDS), "seeds": list(SEEDS), "expected_fits": EXPECTED_FITS,
+              "comparison": args.comparison,
+              "folds": list(OUTER_FOLDS), "seeds": list(SEEDS),
+              "expected_fits": len(conditions) * len(OUTER_FOLDS) * 3 * len(SEEDS),
               "provenance": provenance, "model_training_resume": False, "stop_after_queue": True})
     logger.info("Verifying existing source cache once and loading all 13 layers into CPU RAM; no encoder/target access")
     bank = load_bank(args.cache_root, args.data_root, logger=logger)
     save_json(args.output / "cache_validation.json", {"all_payload_sha256_checked": True,
               "all_canonical_ids_labels_checked": True, "cache_completion_sha256": provenance["cache_completion_sha256"],
               "source_splits": {f"{d}/{s}": {"records": len(v.labels), "unique_rows": len(v.wavlm)} for (d, s), v in bank.items()}})
-    timing_check(bank, args.output, factory, logger)
-    run_queue(bank, args.output, factory, provenance, "cuda", logger)
+    timing_check(bank, args.output, factory, logger, conditions=conditions)
+    run_queue(bank, args.output, factory, provenance, "cuda", logger, conditions=conditions)
 
 
 if __name__ == "__main__":

@@ -4,13 +4,17 @@ import torch
 from torch import nn
 
 from audio_deepfake_detection.lacf.ablations import RelationAblation
-from audio_deepfake_detection.lacf.model import ComponentConfig, LACFLoss
+from audio_deepfake_detection.lacf.model import (
+    CONCEPTS, TEMPLATES, ComponentConfig, LACFLoss, anchor_distribution, relation_classifier, unit_vectors,
+)
 from audio_deepfake_detection.lacf.precision import FP32LayerNorm
 
 
 CONDITIONS = ("C0", "C1", "C2", "C3", "C4")
 GROUPS = ((0, 4), (4, 8), (8, 13))  # Half-open representation indices, including R0.
 PARAMETERS = dict(zip(CONDITIONS, (661479, 661479, 661492, 963498, 967338)))
+READOUT_CONDITIONS = ("D1", "D2")
+READOUT_PARAMETERS = {"D1": 659710, "D2": 692974}
 
 
 class ResidualExpert(nn.Module):
@@ -112,4 +116,64 @@ class LayerFusionDetector(nn.Module):
                           if self.condition == "C4" else None,
                 "common_backend_initialization": "identical within seed; isolated fusion initialization RNG",
                 "foundation_encoders_loaded": False, "objective": "detection BCE only",
+                "trainable_parameters": sum(p.numel() for p in self.parameters() if p.requires_grad)}
+
+
+class ReadoutDetector(nn.Module):
+    """D1 anchor-only / D2 direct readouts of the same normalized C2 adapter.
+
+    A fresh reference backend preserves C2's adapter initialization and RNG
+    consumption. Its unused classifier is discarded, never fitted or retained.
+    Only the differently sized first classifier block gets a new initialization;
+    the 64→16→1 tail is copied from the fresh reference in both controls.
+    """
+    def __init__(self, condition, prototypes):
+        super().__init__()
+        if condition not in READOUT_CONDITIONS:
+            raise ValueError("Expected D1 or D2")
+        reference = RelationAblation("A9", prototypes)
+        self.adapter = reference.adapter
+        self.condition = condition
+        self.input_dim = 8 if condition == "D1" else 512
+        if condition == "D1":
+            self.register_buffer("prototypes", reference.prototypes.clone())
+        with torch.random.fork_rng(devices=[]):
+            self.classifier = relation_classifier(self.input_dim)
+            self.layer_fusion = LayerFusion("C2")
+        for index in range(4, len(self.classifier)):
+            self.classifier[index].load_state_dict(reference.classifier[index].state_dict())
+        self.objective = LACFLoss(ComponentConfig(semantic_loss=False, bonafide_loss=False,
+                                                 semantic_weight=0, bonafide_weight=0))
+        if self.configuration()["trainable_parameters"] != READOUT_PARAMETERS[condition]:
+            raise ValueError("Readout parameter inventory changed")
+
+    @property
+    def layer_weights(self):
+        return self.layer_fusion.layer_weights
+
+    def forward(self, batch):
+        pooled, _ = self.layer_fusion(batch["wavlm"])
+        adapted = unit_vectors(self.adapter(pooled))
+        features = (anchor_distribution(adapted, self.prototypes, 0.07)
+                    if self.condition == "D1" else adapted)
+        return {"v_w": adapted, "features": features,
+                "logit": self.classifier(features).squeeze(-1)}
+
+    def configuration(self):
+        return {"condition": self.condition, "comparison": "multi_layer_readouts",
+                "fusion": "13 global softmax logits, initialized uniformly; fitted separately in each arm",
+                "wavlm_features": "13 cached raw validity-mask-pooled representations; no extra standardization",
+                "adapter": [768, 512, 512], "embedding_normalization": "FP32 L2 after adapter",
+                "classifier": [self.input_dim, 64, 16, 1], "dropout": 0.2,
+                "classifier_normalization": "pre_linear_first_two_layers",
+                "readout": "p_w only" if self.condition == "D1" else "normalized WavLM adapter embedding",
+                "clap_audio": False, "anchor_probabilities": self.condition == "D1",
+                "concepts": list(CONCEPTS) if self.condition == "D1" else None,
+                "templates": list(TEMPLATES) if self.condition == "D1" else None,
+                "temperature": 0.07 if self.condition == "D1" else None,
+                "objective": "detection BCE only", "semantic_loss": False, "bonafide_loss": False,
+                "semantic_weight": 0, "bonafide_weight": 0,
+                "common_initialization": "C2 adapter, zero layer logits, 64→16→1 classifier tail and dropout RNG",
+                "comparison_limitations": "first classifier block width/capacity differs; learned mixtures adapt separately",
+                "foundation_encoders_loaded": False, "sensitive_dtype": "float32",
                 "trainable_parameters": sum(p.numel() for p in self.parameters() if p.requires_grad)}

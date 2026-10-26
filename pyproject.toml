@@ -33,3 +33,6 @@ url = "https://download.pytorch.org/whl/cu126"
 dev = [
     "pytest==8.4.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -11,7 +11,8 @@ from audio_deepfake_detection.lacf.model import ComponentConfig, LACFLoss, unit_
 from audio_deepfake_detection.lacf.probes import FeatureBatches, FeatureSplit
 from audio_deepfake_detection.layer_fusion.diagnostics import source_diagnostics
 from audio_deepfake_detection.layer_fusion.model import (
-    CONDITIONS, GROUPS, PARAMETERS, LayerFusion, LayerFusionDetector,
+    CONDITIONS, GROUPS, PARAMETERS, READOUT_CONDITIONS, READOUT_PARAMETERS,
+    LayerFusion, LayerFusionDetector, ReadoutDetector,
 )
 from audio_deepfake_detection.protocol import FOLDS, checkpoint_digest
 from scripts.lacf import train_probes
@@ -291,3 +292,107 @@ def test_main_refuses_unavailable_cuda_before_creating_outputs(tmp_path, monkeyp
     with pytest.raises(RuntimeError, match="Native CUDA BF16"):
         train.main()
     assert not (tmp_path / "not_created").exists()
+
+
+@pytest.mark.parametrize("condition", READOUT_CONDITIONS)
+def test_readout_dimensions_detection_only_gradient_flow_and_no_clap(condition):
+    proto, batch = prototype_bank(), audio_batch()
+    model = ReadoutDetector(condition, proto)
+    del batch["clap"]
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        output = model(batch)
+        loss = model.objective(output, batch["labels"])
+    dimension = 8 if condition == "D1" else 512
+    assert output["features"].shape == (6, dimension)
+    assert output["features"].dtype == output["v_w"].dtype == loss["total"].dtype == torch.float32
+    torch.testing.assert_close(output["v_w"].norm(dim=-1), torch.ones(6), atol=1e-6, rtol=1e-6)
+    torch.testing.assert_close(loss["total"], loss["detection"], atol=0, rtol=0)
+    assert loss["semantic"].item() == loss["bonafide"].item() == 0
+    loss["total"].backward()
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters())
+    assert model.layer_weights.grad.abs().sum() > 0
+    assert not hasattr(model, "backend") and not hasattr(model, "clap")
+    config = model.configuration()
+    assert config["trainable_parameters"] == READOUT_PARAMETERS[condition]
+    assert config["classifier"] == [dimension, 64, 16, 1]
+    assert not config["clap_audio"] and not config["semantic_loss"] and not config["bonafide_loss"]
+    assert config["semantic_weight"] == config["bonafide_weight"] == 0
+    if condition == "D1":
+        from audio_deepfake_detection.lacf.model import anchor_distribution
+        assert torch.equal(model.prototypes, proto) and not model.prototypes.requires_grad
+        assert model.prototypes.grad is None
+        assert torch.equal(output["features"], anchor_distribution(output["v_w"], proto, 0.07))
+    else:
+        assert torch.equal(output["features"], output["v_w"])
+        assert not hasattr(model, "prototypes") and config["concepts"] is None
+    with pytest.raises(ValueError, match="D1 or D2"):
+        ReadoutDetector("C2", proto)
+
+
+def test_c2_d1_d2_share_adapter_tail_layer_logits_and_dropout_stream():
+    proto, batch = prototype_bank(), audio_batch()
+    adapters, tails, rngs, vectors, after = [], [], [], [], []
+    for condition in ("C2", *READOUT_CONDITIONS):
+        torch.manual_seed(1234)
+        model = (LayerFusionDetector(condition, proto) if condition == "C2" else ReadoutDetector(condition, proto))
+        backend = model.backend if condition == "C2" else model
+        adapters.append({k: v.clone() for k, v in backend.adapter.state_dict().items()})
+        tails.append({k: v.clone() for k, v in backend.classifier[4:].state_dict().items()})
+        assert torch.equal(model.layer_weights, torch.zeros(13))
+        rngs.append(torch.get_rng_state())
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            vectors.append(model(batch)["v_w"].detach())
+        after.append(torch.get_rng_state())
+    for index in (1, 2):
+        assert all(torch.equal(v, adapters[index][k]) for k, v in adapters[0].items())
+        assert all(torch.equal(v, tails[index][k]) for k, v in tails[0].items())
+        assert torch.equal(rngs[0], rngs[index]) and torch.equal(after[0], after[index])
+        assert torch.equal(vectors[0], vectors[index])
+
+
+@pytest.mark.parametrize("condition", READOUT_CONDITIONS)
+def test_readout_real_fit_uses_same_draws_as_c2_reload_and_refuses_overwrite(tmp_path, monkeypatch, condition):
+    bank, proto = source_bank(), prototype_bank()
+    monkeypatch.setattr(train_probes, "MAX_EPOCHS", 2)
+    weighted = FeatureBatches([bank[d, "train"] for d in ("asv5", "cfad")], "weighted", "cpu",
+                              training=True, seed=1234)
+    concat = FeatureBatches([bank[d, "train"] for d in ("asv5", "cfad")], "concat", "cpu",
+                            training=True, seed=1234)
+    for _epoch in range(2):
+        for left, right in zip(weighted, concat):
+            assert "clap" not in left
+            assert all(torch.equal(left[key], right[key]) for key in left)
+    options = dict(condition=condition, fold="f1", held="asv2019", seed=1234,
+                   provenance={"scope": "synthetic CPU"}, device="cpu", logger=logging.getLogger(condition),
+                   factory=lambda condition, head: ReadoutDetector(condition, proto))
+    run = tmp_path / condition / "inner_asv2019/f1/1234"
+    result = fit_condition(bank, run, **options)
+    train_probes.verify_probe_completion(run, "f1", 1234, expected_stage=STAGE)
+    config = json.loads((run / "config.json").read_text())
+    assert config["feature_inputs"] == "weighted" and result["head"] == "readout"
+    assert config["layer_fusion"]["condition"] == condition
+    assert config["fit_domains"] == ["asv5", "cfad"] and config["foundation_encoders_loaded"] is False
+    diagnostics = json.loads((run / "source_diagnostics.json").read_text())
+    assert diagnostics["domains"] == {} and len(diagnostics["layer_alpha"]) == 13
+    assert result["source_diagnostics_sha256"] == checkpoint_digest(run / "source_diagnostics.json")
+    with pytest.raises(FileExistsError):
+        fit_condition(bank, run, **options)
+
+
+def test_d1_d2_cpu_queue_completes_only_54_authorized_fits(tmp_path, monkeypatch):
+    from scripts.layer_fusion import train
+    bank, proto = source_bank(), prototype_bank()
+    for part in ("train", "dev"):
+        bank["speechfake", part] = split(part == "train")
+    monkeypatch.setattr(train_probes, "MAX_EPOCHS", 1)
+    train.run_queue(bank, tmp_path, lambda condition, head: ReadoutDetector(condition, proto),
+                    {"scope": "synthetic CPU", "code_sha256": {}}, "cpu", logging.getLogger("readout_queue"),
+                    conditions=READOUT_CONDITIONS)
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    completion = json.loads((tmp_path / "complete.json").read_text())
+    assert summary["complete"] and summary["expected_fits"] == summary["completed_fits"] == 54
+    assert len(summary["three_seed_summary"]) == 6
+    assert {row["inputs"] for row in summary["fits"]} == {"D1", "D2"}
+    assert all(row["head"] == "readout" and row["fold"] != "f4" for row in summary["fits"])
+    assert completion["summary_sha256"] == checkpoint_digest(tmp_path / "summary.json")
+    assert not any((tmp_path / name).exists() for name in CONDITIONS)

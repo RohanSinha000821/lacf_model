@@ -1,5 +1,14 @@
 # SOTA paper reading notes for the LACF comparison
 
+24October2026: the owner authorizes D1/D2 readout controls after review. Reread
+the main DOCX adapter/prototype/classifier equations and supplementary pipeline
+ordering. These new multi-layer detection-only controls are not the prescribed
+last-layer A5 or a replacement primary recipe. D1 keeps the original text anchors
+without CLAP audio; D2 uses the normalized adapter embedding directly. Both
+reuse C2's learned-mixture rule and the original adapter/head building blocks.
+Different first head widths and separately fitted mixtures limit causal claims;
+no novelty or target-performance claim follows from implementation or CPU checks.
+
 ## Owner-proposed frozen layer fusion (implementation, 2026-10-22)
 
 Reread the actual main DOCX including tables and loss/adapter equations. C0–C4

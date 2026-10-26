@@ -1,4 +1,70 @@
-# Frozen layer-fusion comparison: C0–C4
+# Frozen layer-fusion and readout comparisons
+
+## D1/D2 authorization and design (24 October 2026)
+
+The owner authorizes the two missing readout controls in the same source/script
+folders, after CPU checks and source-only GPU preflight. The original C0–C4
+comparison below remains intact; its completed output directory is never reused.
+Keep active SSL F2 running. These diagnostics do not remove CLAP from primary
+LACF, select a final method, change the F4 policy or authorize target evaluation.
+
+Both controls use C2's uniform-initialized learned softmax mixture of all13 raw
+WavLM representations, the original LN→768→512→GELU→Dropout(.2)→512 adapter,
+and FP32 L2 normalization of the adapter output. Frozen encoders are not loaded.
+
+| Condition | Readout after the normalized adapter | Trainable parameters |
+|---|---|---:|
+| D1 | Original8-prototype softmax at0.07 → LN(8)→64→GELU/dropout→LN(64)→16→GELU/dropout→1 | 659,710 |
+| D2 | Normalized512-D embedding → same head ordering with512 input dimensions | 692,974 |
+
+D1 retains language-defined text anchors but no CLAP audio or cross-view
+relations. D2 has no anchor buffer or CLAP audio path. Detection BCE is the only
+loss; both auxiliary flags and weights are false/zero. No prompts are changed.
+All mixture logits, adapters and classifiers train freshly in each fit.
+
+Within each seed, initialize the adapter and classifier64→16→1 tail identically
+to a fresh C2, with equal zero layer logits and the same subsequent dropout RNG.
+Construction uses a temporary randomly initialized C2 backend to match its RNG
+consumption, discards the unused35-D head, and constructs the new first head
+block inside an isolated RNG context. No old fitted model initializes these
+controls. CPU tests and a source GPU check compare shared weights, normalized
+adapter outputs and dropout RNG against a fresh C2.
+
+These controls are not perfectly capacity-matched: the first classifier blocks
+take35(C2),8(D1), or512(D2) inputs. D2 versus a direct Step3 probe also changes
+depth, normalization and capacity. All arms learn their mixture coefficients
+separately; they do not have identical fitted features. C2 versus D1 studies
+the complete CLAP-relation pathway, not CLAP alone with an identical classifier.
+D1 versus D2 studies the anchor readout with its necessary dimension change.
+Report these limits rather than claiming either comparison isolates every cause.
+
+Reuse the same cache, logical training views, balanced utterance draws, F1–F3
+inner-source rotations and seeds1234/1235/1236. Batch132/accum1, AdamW3e-4,
+weight decay1e-4, constant LR, BF16/sensitiveFP32, maximum30/patience5 and strict
+EER selection are unchanged. Two conditions ×3source sets ×3rotations ×3seeds
+give54fits. Each selected checkpoint must reload and reproduce all held-source
+scores exactly before advancement. Summary means give equal weight to inner
+domains, then report three-seed mean/sample SD. No target calibration or scores.
+
+Only `model.py`, the existing runner and focused synthetic tests are extended.
+The runner's default remains C0–C4; `--comparison readouts` selects D1/D2 only.
+It validates canonical source identities and all feature payload hashes once,
+keeps the existing feature bank in CPU RAM, and transfers only WavLM features
+and labels for D1/D2 training. No waveform workers or new encoder passes.
+Source GPU preflight performs8warmup+64measured updates per control, complete
+ASV2019 source-dev scoring and exact fresh reload. Timing weights are discarded.
+Log, configuration, provenance and failed checks are preserved; no resume,
+overwrite or automatic retry. Stop after54fits; later experiments need a decision.
+
+```bash
+python -u -m scripts.layer_fusion.train --comparison readouts \
+  --output outputs/layer_fusion/frozen_d1_d2_YYYYMMDD
+```
+
+The earlier7–8hour suggestion is an extrapolation from other heads, not measured
+D1/D2 runtime. Use this run's source-only preflight and actual progress instead.
+
+## Original C0–C4 comparison (22 October 2026)
 
 Owner request, 22 October 2026: implement this comparison in separate folders.
 Implementation and synthetic CPU validation alone do not authorize launching it.
