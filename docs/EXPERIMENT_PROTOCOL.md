@@ -2,6 +2,17 @@
 
 ## Exploratory TF2 encoder adaptation authorized (2026-10-31)
 
+
+Later same-day owner authorization: launch one fresh seed1234 F1 inner-source
+pilot for `wavlm_lora_clap` only. Train on ASV5+CFAD train; ASV2019 development
+selects the checkpoint. Retain physical22/accum6/effective132, 8train/4dev
+workers/prefetch2 and10GiB allocator guard while preserving SSLF2. Approved
+model/LR/precision/max30/patience5 settings below are unchanged. This lifts the
+launch hold for one fit only; the complete comparison remains unscheduled.
+No target evaluation, resume, retry, output overwrite or automatic publication.
+Actual launch/progress is recorded in the local handoff, not inferred from this
+authorization. Full selected-checkpoint source reload is still a completion gate.
+
 This is separate from primary LACF, the C/D diagnostics and original A10.
 The owner approves implementation and measured source-only timing first;
 do not launch the long queue automatically. Preserve active SSL F2 and all
@@ -124,6 +135,37 @@ selection continue during training; final target access still needs separate
 authorization and reproduced full source calibration. Fail visibly on OOM;
 never crop dev/test or alter the recipe automatically. Preserve concurrent jobs.
 
+
+## SSL-gating20s F3 training authorized (2026-10-29)
+
+The owner separately authorizes fresh F3 seed1234 training on SSH1. Preserve the
+version2 recipe above: batch5/FP32, random training-only crops up to20s, full
+recording batch-one source development, Adam3e-6/wd1e-4, constantLR, weighted
+CE+CKA, maximum10/patience3 and strict macro source-dev EER selection. Retain
+16train/4dev workers, prefetch2, CPUthreads2 and the19GiB allocator guard.
+Verify unchanged validated runtime and canonical source/cache identities;
+reuse the documented bounded source GPU/reload evidence. F3 uses ASV2019 LA,
+CFAD and SpeechFake source train/dev only. ASVspoof5 eval remains unopened.
+Start from the pinned original XLS-R300M and a fresh backend, preserving all
+prior runs. No target evaluation, automatic other folds/seeds, resume or retry
+is authorized. The documented family seed plan is unchanged.
+
+## SSL-gating20s F1 native evaluation authorized (2026-10-29)
+
+The owner also authorizes completed F1 seed1234 native P1 evaluation alongside
+the preserved F3 trainer. Verify the selected epoch3/checkpoint and reproduce
+all180194 source-dev scores and their macro EER/calibration before opening
+SpeechFake test. Preserve full recordings, batch1/FP32, the original labels and
+score direction, source-calibrated1/5/10percent APCER operating points, raw and
+separately labelled transductive z-score transfer and conditional95percent
+bootstrap intervals (1000resamples, seed2026). Use the local audio cache.
+
+Operational settings are8workers/prefetch2/CPUthreads2; the evaluation launcher
+sets a12GiB allocator guard to protect concurrent F3 training. This resource
+guard does not change inputs or scores; stop on memory failure without
+cropping, skipping, automatic retries or changes to the trainer. Full source
+calibration remains the target-access gate. No other fold evaluation, P2-P4,
+retraining or target-guided scientific change is authorized by this request.
 ## Completed AASIST F4 native evaluation authorized (2026-10-22)
 
 The owner now explicitly requests evaluating completed AASIST F4 seed1234.

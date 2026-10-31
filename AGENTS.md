@@ -33,6 +33,8 @@
 - Latest owner authorization, 2026-10-24: implement and start only D1/D2 multi-layer readout controls in the existing `layer_fusion/` folders after CUDA-hidden CPU checks and source-only GPU preflight. D1 uses the C2 learned13-layer mixture, original normalized adapter and original eight anchors, with only p_W feeding an8-D head; D2 uses the same normalized adapter embedding directly with a512-D head. Both use detection BCE only, no CLAP audio or auxiliary losses, fresh initialization, and the existing F1–F3 inner rotations/seeds1234/1235/1236/recipe:54fits. Preserve common C2 adapter/head-tail initialization and dropout RNG; disclose differing first classifier blocks/capacity and separately learned mixtures. Keep completed C0–C4 intact and active SSLF2 untouched. No automatic final architecture selection, fine-tuning, later variants, F4/external/target evaluation, resume, overwrite, retry, commit or push.
 - Latest SSL-gating owner authorization, 2026-10-22: adopt version2 training-only random crops up to20seconds after16kHz resampling, batch5/FP32 and full-recording batch-one dev/test. After passed source-only maximum-input/reload checks, start fresh F1 seed1234 on SSH1 as `ssl_gating_20s`; preserve the failed uncapped run. Prepare SSH2 code/weights/data readiness for later folds only; do not automatically launch them or new target evaluation. Keep16train/4dev workers, prefetch2 and the existing optimizer/loss/sampler. The19GiB allocator guard leaves CUDA overhead within an approximately20GiB process budget. No smaller batch, precision change, training resume or pilot-weight initialization. Other SSL-gating seeds remain unscheduled and its documented family seed plan is unchanged.
 - Later SSL-gating owner authorization, 2026-10-22: start fresh SSH2 F2 seed1234 only as `ssl_gating_20s`, reusing the prepared/passed source-readiness evidence and pinned original XLS-R. Preserve version2 training-only20s crops, batch5/FP32, full-recording batch-one dev/test, Adam3e-6/wd1e-4/constantLR/CE+CKA/max10/patience3, 16train/4dev workers/prefetch2 and19GiB allocator guard. Preserve active C0–C4/AASIST evaluation. No resume, automatic retry, pilot/fold-weight initialization, later folds/seeds or new target evaluation; stop and preserve evidence on failure.
+- Latest SSL-gating owner authorization, 2026-10-29: start fresh F3 seed1234 on SSH1 as `ssl_gating_20s`, after source/cache identity and unchanged validated runtime checks. Retain version2 batch5/FP32, training-only random up-to20s crops, full-recording batch-one dev/test, 16train/4dev workers, prefetch2, CPUthreads2, 19GiB allocator guard and existing optimizer/loss/sampler/strict source-macro-EER selection. Initialize from the pinned original XLS-R plus a fresh backend, never another fold or pilot checkpoint. This authorizes F3 training only; no target evaluation, automatic other folds/seeds, resume or retry. Preserve other-host work and the existing family seed plan.
+- Latest SSL-gating evaluation authorization, 2026-10-29: evaluate completed F1 seed1234 natively on SSH1 alongside preserved F3 training. Verify selected epoch3/checkpoint identity and reproduce full source-dev calibration before opening SpeechFake test. Retain full recordings, batch1/FP32, original score direction, raw and separately labelled transductive transfer and shared conditional bootstrap intervals. Use the local audio cache; 8workers/prefetch2/CPUthreads2 and a separate12GiB evaluation allocator guard protect concurrent training. Stop on OOM/failure without cropping, skipping, automatic retry or changes to F3. This authorizes F1 native P1 only, not F3 targets, other protocols, retraining or target-guided changes.
 - Owner compute-budget decisions: WavLM family `wavlm_bs96` (2026-10-05), AASIST family `aasist` (2026-10-06), and the initial LACF families `lacf` (10 s) and `lacf4s` (2026-10-08/09) use seed 1234 only across F1–F4. Do not schedule seeds 2345/3456 for these families. Other models retain their existing seed plan unless explicitly changed. Single-seed results have no across-seed standard deviation; target-bootstrap intervals do not measure seed variability.
 
 ## TF2 adaptation owner authorization (2026-10-31)
@@ -53,6 +55,17 @@ implementation, evaluator, adaptation code, tests and public documentation to
 GitHub main, then provide safe SSH1 synchronization instructions. This overrides
 the publication hold only; long adaptation training and new evaluation remain held.
 Keep outputs, local reports/handoffs and reference originals excluded.
+
+
+Later owner launch decision, 31 October: start exactly one fresh TF2 F1 inner-source
+pilot, seed1234, with all12-block WavLM Q/V LoRA plus CLAP final audio stage and
+projection adaptation. Fit ASV5+CFAD train; ASV2019 dev alone selects by strict
+EER. Use validated physical22/accum6/effective132, 8train/4dev workers/prefetch2,
+10GiB allocator cap and the approved optimizer/precision/max30/patience5.
+This supersedes the launch hold for this one fit only. Preserve SSLF2, source
+runtime guards and prior outputs; no target evaluation, automatic later runs,
+resume, retry, overwrite, commit or push. Stop on failure. See local handoff
+for launch/status; a pilot launch does not establish completed validation.
 
 ## Implementation style
 
