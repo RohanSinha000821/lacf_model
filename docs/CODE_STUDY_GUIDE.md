@@ -1,5 +1,28 @@
 # Python code study guide
 
+## TF2 token-fusion and isolated adaptation (2026-10-31)
+
+`token_fusion/model.py` implements TF0–TF3 frozen-feature controls. TF2 uses
+thirteen WavLM layer tokens and one CLAP audio token plus CLS, with two fusion
+Transformer blocks and detection BCE. `scripts/token_fusion/train.py` and
+`evaluate.py` are separate from primary LACF and SOTA entry points.
+
+`token_fusion/adaptation.py` adds low-rank parametrizations to effective Q/V
+weights in every WavLM block, optionally unfreezes only CLAP's final audio
+stage/projection, and keeps encoder execution in eval mode. It carries gradients
+through native-length WavLM pooling and raw CLAP audio projection, retains the
+existing TF2 head and exposes exact enabled-parameter counts/optimizer groups.
+`adaptation_data.py` reads only fitting-source train and inner-held source dev,
+reuses fixed crop definitions, canonical readers and domain/class weights.
+
+`scripts/token_fusion/train_adaptation.py` separates bounded source probes from
+future fitting. It preserves effective batch132 with correctly weighted tail
+accumulation, pinned local-only bases, strict source EER selection and sparse
+checkpoint fresh-base reload. Tests in `tests/test_token_fusion_adaptation.py`
+exercise actual small WavLM functional attention, gradient/freeze scope, crop
+parity, source isolation, sparse states and incomplete accumulation groups.
+Long fitting remains held pending measured runtime and a later launch request.
+
 24October2026: `layer_fusion/model.py:ReadoutDetector` implements D1/D2 with
 the existing C2 mixture/adapter and8-D anchor or512-D direct readout. The same
 runner selects54source-only fits with `--comparison readouts`; default C0–C4

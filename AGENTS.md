@@ -35,6 +35,25 @@
 - Later SSL-gating owner authorization, 2026-10-22: start fresh SSH2 F2 seed1234 only as `ssl_gating_20s`, reusing the prepared/passed source-readiness evidence and pinned original XLS-R. Preserve version2 training-only20s crops, batch5/FP32, full-recording batch-one dev/test, Adam3e-6/wd1e-4/constantLR/CE+CKA/max10/patience3, 16train/4dev workers/prefetch2 and19GiB allocator guard. Preserve active C0–C4/AASIST evaluation. No resume, automatic retry, pilot/fold-weight initialization, later folds/seeds or new target evaluation; stop and preserve evidence on failure.
 - Owner compute-budget decisions: WavLM family `wavlm_bs96` (2026-10-05), AASIST family `aasist` (2026-10-06), and the initial LACF families `lacf` (10 s) and `lacf4s` (2026-10-08/09) use seed 1234 only across F1–F4. Do not schedule seeds 2345/3456 for these families. Other models retain their existing seed plan unless explicitly changed. Single-seed results have no across-seed standard deviation; target-bootstrap intervals do not measure seed variability.
 
+## TF2 adaptation owner authorization (2026-10-31)
+
+Implement the separate TF2 all12-block Q/V LoRA comparison: rank8/alpha16/no
+LoRA dropout, LR1e-4; optional CLAP final audio stage plus projection at1e-5;
+TF2 LR3e-4, common AdamW wd1e-4/constantLR/effectivebatch132/BF16-FP32/max30/
+patience5. Preserve frozen base weights/encoder eval execution and original TF2
+BCE head. New adaptation selection uses F1's three inner source rotations and
+seeds1234/1235/1236, with fresh official bases and heads. This is not originalA10.
+Latest owner choice: finish implementation and **bounded source-only measured
+GPU timing first; report runtime before launching the long queue**. Do not
+start final fits automatically. Preserve active SSLF2; no new target/F4/external
+access, resume, overwrite, retry, commit or push. See the dated protocol.
+
+Later owner request, 31 October: publish the pending isolated token-fusion
+implementation, evaluator, adaptation code, tests and public documentation to
+GitHub main, then provide safe SSH1 synchronization instructions. This overrides
+the publication hold only; long adaptation training and new evaluation remain held.
+Keep outputs, local reports/handoffs and reference originals excluded.
+
 ## Implementation style
 
 - Keep the layout simple: reusable code under `src/audio_deepfake_detection/`, model entry points under `scripts/<model>/`, synthetic tests under `tests/`, research notes under `docs/`, references under `references/`. Keep `README.md` and `AGENTS.md` at the project root for onboarding and instruction discovery.

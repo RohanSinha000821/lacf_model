@@ -1,5 +1,19 @@
 # Audio deepfake detection: LODO runs
 
+## Isolated TF2 token-fusion adaptation (2026-10-31)
+
+Exploratory TF0–TF3 code is under `token_fusion/` in `src/` and `scripts/`.
+TF2 combines thirteen pooled WavLM layer tokens and one CLAP audio token with a
+CLS token and two Transformer fusion blocks. It uses detection BCE only; the
+primary LACF and SOTA implementations are unchanged.
+
+The owner approved rank-8 Q/V LoRA across all twelve WavLM blocks and a second
+condition that also adapts CLAP's final audio stage and projection. See the
+[dated protocol](docs/EXPERIMENT_PROTOCOL.md) and
+[code guide](docs/CODE_STUDY_GUIDE.md). Implementation and bounded source-only
+GPU timing are authorized; **the long adaptation queue is held until runtime
+is reported and a launch is requested**. This is not the original plan's A10.
+
 Owner authorization,24October2026: D1/D2 readout controls extend the same
 `layer_fusion/` package. They compare WavLM anchor probabilities with a direct
 normalized-adapter readout, using detection BCE only and no CLAP audio.
@@ -17,7 +31,8 @@ seeds1234/1235/1236. This authorizes implementation only; no new experiments
 were launched by that implementation task. The later 22 October owner request
 authorizes source-only preflight and the C0–C4 queue; see the local handoff for
 actual launch status. See [configuration and future launch instructions](docs/LAYER_FUSION_EXPERIMENTS.md).
-Primary LACF and SOTA settings are unchanged; fine-tuning remains deferred.
+Primary LACF and SOTA settings are unchanged. Fine-tuning was deferred for this
+C0–C4 launch; the later TF2 adaptation authorization is separate.
 
 Current owner policy (2026-10-12): completed SOTA runs may be evaluated
 independently; comparison-wide freeze is not required. Earlier confirmation

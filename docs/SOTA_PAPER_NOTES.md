@@ -1,5 +1,15 @@
 # SOTA paper reading notes for the LACF comparison
 
+## Owner-approved exploratory TF2 adaptation (2026-10-31)
+
+The new all12-block rank8 Q/V LoRA comparison is an owner-approved exploratory
+extension of TF2, not a reproduction claim for the main LACF plan or its A10.
+A10 remains the original relation model with top-four-block adaptation.
+The second TF2 condition also trains CLAP's final audio stage and projection;
+text/earlier audio stages stay frozen. Numerical settings and scope are in the
+dated protocol. No encoder adaptation result exists from implementation or
+short timing checks; long fits require a later launch after runtime disclosure.
+
 24October2026: the owner authorizes D1/D2 readout controls after review. Reread
 the main DOCX adapter/prototype/classifier equations and supplementary pipeline
 ordering. These new multi-layer detection-only controls are not the prescribed

@@ -1,5 +1,55 @@
 # Cross-domain experiment protocol (v4)
 
+## Exploratory TF2 encoder adaptation authorized (2026-10-31)
+
+This is separate from primary LACF, the C/D diagnostics and original A10.
+The owner approves implementation and measured source-only timing first;
+do not launch the long queue automatically. Preserve active SSL F2 and all
+F4/external/new-target holds. Earlier all-three-source TF0–TF3 F1 results and
+SpeechFake comparisons are exploratory, not inner-source model-selection
+results or authorization for additional target-guided tuning.
+
+Reference: fresh TF2 with frozen official encoders and existing centered plus
+two fixed-random source-train feature views. Adaptation condition 1: rank-8
+Q/V LoRA in all twelve WavLM Base+ blocks, alpha16, zero dropout; original
+weights frozen. Condition 2 adds unfused CLAP audio stage3 (the final of four)
+and audio projection; CLAP terminal encoder normalization, earlier stages and
+text stay frozen. Both encoders execute in eval mode, retaining gradients only
+for enabled weights; TF2 executes in train mode during fitting. Effective
+weight parametrizations are necessary because WavLM's functional attention
+reads `.weight` directly instead of calling projection `forward()`.
+
+Retain TF2's thirteen 768-D pooled layer vectors, shared768→512→512 adapter,
+one512-D CLAP audio token, layer/type IDs, CLS, two pre-LN512-D/8-head/1024-FF
+fusion blocks and512→64→16→1 detection head. Detection BCE only; no semantic,
+JS or active text-prototype pathway. Trainable counts: frozen reference4,907,745;
+WavLM LoRA294,912 plus TF2=5,202,657; adding CLAP14,846,528 gives20,049,185.
+These counts do not describe full encoder forward/backward computation.
+
+AdamW: TF2 LR3e-4, LoRA LR1e-4, adapted CLAP LR1e-5, all wd1e-4,
+constant LR, BF16 mixed with FP32 normalization, TF2 attention and loss, no TF32.
+Maximum30epochs/patience5; strict inner-held source-dev EER, ties keep earlier;
+report EER and AUROC. Effective batch132 via sample-weighted accumulation;
+physical batch must divide132 and be measured before a later launch.
+Do not change the input duration or skip examples to fit memory.
+
+Prospective F1 comparison: train on two of ASV2019/ASV5/CFAD and validate on
+third's development set, for each rotation and seed1234/1235/1236. This is nine
+fresh frozen references plus eighteen encoder-adaptation fits, not a training
+queue authorized by this implementation task. Never initialize from an
+all-three-source TF2 checkpoint or a pilot. Adaptation reads the identical
+fixed physical up-to10s crop law and independently resamples16/48kHz. Slice
+transport padding before WavLM; retain validity-aware pooling and CLAP repeatpad.
+Cache rounding/execution differs from online encoding and must be disclosed.
+
+`python -m scripts.token_fusion.train_adaptation --mode probe` performs bounded
+source-only timing and sparse-state reload checks, discards pilot weights and
+never starts final fitting. `--mode train` is a separate future explicit launch;
+there is no resume, automatic retry or output overwrite. Sparse checkpoints
+store all enabled weights and bind pinned official base revisions/configuration;
+completion requires fresh-base reload and identical full held-source scores.
+Official weights remain local-only. Timing is not a completed scientific run.
+
 ## Multi-layer readout controls D1/D2 authorized (2026-10-24)
 
 The owner authorizes implementation and launch in the existing `layer_fusion/`

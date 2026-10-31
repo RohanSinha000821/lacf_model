@@ -1,0 +1,429 @@
+"""Source-only TF2 encoder adaptation. Probe now; long fits need owner launch."""
+
+import argparse
+import gc
+import itertools
+import json
+import logging
+import math
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import torch
+import transformers
+from transformers import ClapModel, ClapProcessor, Wav2Vec2FeatureExtractor, WavLMModel
+
+from audio_deepfake_detection.lacf.diagnostic_cache import all_layer_features
+from audio_deepfake_detection.lacf.pretrained import DualViewCollator
+from audio_deepfake_detection.lacf.probes import FeatureBatches, load_split, score_probe
+from audio_deepfake_detection.lacf.training import device_batch, report_progress, make_optimizer, train_epoch as train_features
+from audio_deepfake_detection.metrics import compute_auroc, compute_eer, read_score_csv, write_score_csv
+from audio_deepfake_detection.protocol import FOLDS, checkpoint_digest, utterance_id
+from audio_deepfake_detection.token_fusion.adaptation import AdaptationConfig, AdaptedTF2
+from audio_deepfake_detection.token_fusion.adaptation_data import inner_sources, make_audio_loader, verify_source_membership
+from audio_deepfake_detection.token_fusion.model import TokenFusion
+from scripts.lacf.train_probes import seed_all
+from scripts.token_fusion.train import ROOT, SEEDS, check_guards, save_json
+
+
+CACHE = ROOT / "outputs/lacf_diagnostic_features_v1"
+EFFECTIVE_BATCH = 132
+CONDITIONS = ("frozen", "wavlm_lora", "wavlm_lora_clap")
+
+
+def load_model(config, seed, device, *, frozen=False):
+    identity = json.loads((CACHE / "execution_accelerated.json").read_text())
+    p = identity["pretrained"]
+    revisions = {"wavlm_revision": p["wavlm_revision"], "clap_revision": p["clap_revision"]}
+    if frozen:
+        seed_all(seed)
+        return TokenFusion("TF2").to(device), None, revisions
+    # Foundation construction must not alter the shared fresh fusion/RNG state.
+    with torch.random.fork_rng(devices=[]):
+        wavlm = WavLMModel.from_pretrained("microsoft/wavlm-base-plus", revision=p["wavlm_revision"],
+                                          local_files_only=True, dtype=torch.float32)
+        clap = ClapModel.from_pretrained("laion/clap-htsat-unfused", revision=p["clap_revision"],
+                                         local_files_only=True, dtype=torch.float32)
+        wprocessor = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-base-plus", revision=p["wavlm_revision"], local_files_only=True)
+        cprocessor = ClapProcessor.from_pretrained("laion/clap-htsat-unfused", revision=p["clap_revision"], local_files_only=True)
+    collator = DualViewCollator(wprocessor, cprocessor)
+    if collator.configuration() != identity["processors"]:
+        raise ValueError("Diagnostic input/processor policy changed")
+    # TF2 never uses CLAP text; release those unused frozen weights, not audio.
+    del clap.text_model, clap.text_projection
+    seed_all(seed)
+    model = AdaptedTF2(wavlm, clap, config).to(device)
+    if model.configuration()["counts"]["wavlm_lora"] != 294912 or model.configuration()["counts"]["fusion"] != 4907745:
+        raise ValueError("Rank8/all12 QV or TF2 parameter inventory changed")
+    expected_clap = 14846528 if config.clap_final_stage else 0
+    if model.configuration()["counts"]["clap"] != expected_clap:
+        raise ValueError("Approved CLAP stage/projection parameter inventory changed")
+    return model, collator, revisions
+
+
+def adaptation_state(model):
+    return model.trainable_state() if isinstance(model, AdaptedTF2) else {
+        n: p.detach().cpu().clone() for n, p in model.state_dict().items()}
+
+
+def restore_adaptation(model, state):
+    if isinstance(model, AdaptedTF2):
+        model.load_trainable_state(state)
+    else:
+        model.load_state_dict(state, strict=True)
+
+
+def train_audio_epoch(model, loader, optimizer, device, *, effective_batch=EFFECTIVE_BATCH, logger=None, phase="train", max_batches=None):
+    """Sample-weighted accumulation, including a short last microbatch/group."""
+    physical = loader.batch_size
+    if effective_batch < physical or effective_batch % physical:
+        raise ValueError("Physical batch must divide the approved effective batch")
+    total = len(loader.dataset) if max_batches is None else min(len(loader.dataset), max_batches*physical)
+    model.train()
+    parameters = [p for g in optimizer.param_groups for p in g["params"]]
+    count = updates = group_seen = 0
+    loss_sum = torch.zeros((), device=device)
+    started = last_log = time.monotonic()
+    batches = loader if max_batches is None else itertools.islice(loader, max_batches)
+    for index, batch in enumerate(batches):
+        if count >= total:
+            break
+        if group_seen == 0:
+            optimizer.zero_grad(set_to_none=True)
+            group_count = min(effective_batch, total-count)
+        batch = device_batch(batch, device)
+        size = len(batch["labels"])
+        with torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
+            losses = model.objective(model(batch), batch["labels"])
+        if losses["total"].dtype != torch.float32 or not torch.isfinite(losses["total"]):
+            raise ValueError("Nonfinite loss or sensitive loss not FP32")
+        (losses["total"] * (size/group_count)).backward()
+        group_seen += size
+        count += size
+        loss_sum += losses["total"].detach()*size
+        if group_seen == group_count:
+            if any(p.grad is None for p in parameters) or not torch.stack([torch.isfinite(p.grad).all() for p in parameters]).all():
+                raise ValueError("Missing/nonfinite enabled gradient; no optimizer update")
+            optimizer.step()
+            updates += 1
+            group_seen = 0
+        if time.monotonic()-last_log >= 30 or count == total:
+            report_progress(logger, phase, count, total, started, loss=float(loss_sum/count))
+            last_log = time.monotonic()
+    if count != total or group_seen:
+        raise ValueError("Incomplete accumulation group or source epoch")
+    return {"total": float(loss_sum/count), "samples": count, "updates": updates,
+            "seconds": time.monotonic()-started}
+
+
+@torch.inference_mode()
+def score_audio(model, loader, device, *, logger=None, max_batches=None):
+    model.eval()
+    count = len(loader.dataset) if max_batches is None else min(len(loader.dataset), max_batches*loader.batch_size)
+    scores = torch.empty(count, dtype=torch.float32, device=device)
+    labels = torch.empty(count, dtype=torch.long)
+    offset = 0
+    started = last_log = time.monotonic()
+    batches = loader if max_batches is None else itertools.islice(loader, max_batches)
+    for batch in batches:
+        if offset >= count:
+            break
+        size = len(batch["labels"])
+        labels[offset:offset+size] = batch["labels"]
+        with torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
+            values = model(device_batch(batch, device))["logit"].float()
+        scores[offset:offset+size] = values
+        offset += size
+        if time.monotonic()-last_log >= 30 or offset == count:
+            report_progress(logger, "source validation", offset, count, started)
+            last_log = time.monotonic()
+    scores = scores.cpu()
+    if offset != count or not torch.isfinite(scores).all():
+        raise ValueError("Incomplete/nonfinite source scores")
+    return scores, labels
+
+
+@torch.inference_mode()
+def zero_lora_reference(model, batch):
+    """Original extraction helpers and TF2 must agree at the zero-delta start."""
+    model.eval()
+    enabled = [p for module in (model.wavlm, model.clap) for p in module.parameters() if p.requires_grad]
+    for p in enabled:
+        p.requires_grad_(False)
+    try:
+        reference = all_layer_features(SimpleNamespace(wavlm=model.wavlm, clap=model.clap), batch, "cuda")
+    finally:
+        for p in enabled:
+            p.requires_grad_(True)
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        expected = model.fusion({"wavlm": torch.from_numpy(reference["wavlm_layers"]).cuda(),
+                                 "clap": torch.from_numpy(reference["clap_projected"]).cuda()})["logit"]
+        actual = model(batch)["logit"]
+    if not torch.equal(expected, actual):
+        raise ValueError("Zero-LoRA direct source scoring differs from the original extraction/TF2 path")
+
+
+def probe(model, collator, datasets, args, logger):
+    fitting, train, dev = datasets
+    initial = model.trainable_state()
+    # Use actual canonical long source audio, repeated only as a memory stress.
+    metadata = json.loads((CACHE / "asv5/train/chunk_00000/records.json").read_text())
+    domain = next(d for d in fitting if d.identifiers[0].startswith("asv5/"))
+    row = next(r for r in metadata if r["frames"] >= 10*r["rate"])
+    if domain.identifiers[row["index"]] != row["id"] or domain.records[row["index"]][1] != row["label"]:
+        raise ValueError("Memory-stress source membership differs from the preserved cache")
+    example = domain[row["index"], 0]
+    batch = device_batch(collator([example]*args.physical_batch), "cuda")
+    if batch["wavlm"]["input_values"].shape[-1] != 160000:
+        raise ValueError("Expected actual common10s input for the memory stress")
+    zero_lora_reference(model, device_batch(collator([example]), "cuda"))
+    optimizer = model.optimizer()
+    model.train()
+    torch.cuda.reset_peak_memory_stats()
+    stress_seconds = []
+    for step in range(11):
+        torch.cuda.synchronize()
+        tick = time.monotonic()
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            loss = model.objective(model(batch), batch["labels"])["total"]
+        if loss.dtype != torch.float32 or not torch.isfinite(loss):
+            raise ValueError("Invalid sensitive stress loss")
+        loss.backward()
+        parameters = [p for p in model.parameters() if p.requires_grad]
+        if any(p.grad is None for p in parameters) or not torch.stack([torch.isfinite(p.grad).all() for p in parameters]).all():
+            raise ValueError("Enabled parameters have missing/nonfinite gradients")
+        # A starts with zero gradient because B starts at zero; both must learn later.
+        if step > 0 and not torch.stack([p.grad.abs().sum() for p in model.wavlm.parameters() if p.requires_grad]).gt(0).all():
+            raise ValueError("LoRA bypass detected: an enabled low-rank matrix has zero gradient after update")
+        optimizer.step()
+        torch.cuda.synchronize()
+        if step >= 3:
+            stress_seconds.append(time.monotonic()-tick)
+    peak = torch.cuda.max_memory_allocated()
+    checkpoint = model.trainable_state()
+    model.eval()
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+        expected = model(batch)["logit"].cpu()
+    model.load_trainable_state(initial)
+    model.load_trainable_state(checkpoint)
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+        actual = model(batch)["logit"].cpu()
+    if not torch.equal(expected, actual):
+        raise ValueError("Sparse trainable-state reload differs")
+    reload_inputs = device_batch(batch, "cpu")
+    results = []
+    del batch, optimizer
+    for workers in (4, 8):
+        model.load_trainable_state(initial)
+        optimizer = model.optimizer()
+        train_loader = make_audio_loader(train, collator, batch_size=args.physical_batch, workers=workers,
+                                        seed=args.seed, domains=fitting)
+        tick = time.monotonic()
+        stats = train_audio_epoch(model, train_loader, optimizer, "cuda", effective_batch=EFFECTIVE_BATCH,
+                                  logger=logger, phase=f"timing workers{workers}",
+                                  max_batches=4*EFFECTIVE_BATCH//args.physical_batch)
+        torch.cuda.synchronize()
+        stats.update(workers=workers, measured_seconds_including_startup=time.monotonic()-tick)
+        stats["examples_per_second_including_startup"] = stats["samples"]/stats["measured_seconds_including_startup"]
+        results.append(stats)
+        del train_loader, optimizer
+        gc.collect()
+    val_loader = make_audio_loader(dev, collator, batch_size=args.physical_batch, workers=4, seed=args.seed)
+    tick = time.monotonic()
+    scores, labels = score_audio(model, val_loader, "cuda", logger=logger,
+                                 max_batches=max(12, math.ceil(EFFECTIVE_BATCH/args.physical_batch)))
+    seconds = time.monotonic()-tick
+    val_rate = len(scores)/seconds
+    del val_loader
+    gc.collect()
+    model.cpu()
+    torch.cuda.empty_cache()
+    fresh, _, _ = load_model(model.config, args.seed, "cuda")
+    fresh.load_trainable_state(checkpoint)
+    fresh.eval()
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+        reloaded = fresh(device_batch(reload_inputs, "cuda"))["logit"].cpu()
+    if not torch.equal(expected, reloaded):
+        raise ValueError("Fresh pinned-base sparse reload differs on source inputs")
+    del fresh
+    gc.collect()
+    torch.cuda.empty_cache()
+    best = max(results, key=lambda r: r["examples_per_second_including_startup"])
+    per_epoch = len(train)/best["examples_per_second_including_startup"] + len(dev)/val_rate
+    report = {"passed": True, "purpose": "bounded source-only execution/timing; discard all pilot weights",
+              "condition": args.condition, "held_source": args.held_domain, "seed": args.seed,
+              "physical_batch": args.physical_batch, "effective_batch_for_final_fits": EFFECTIVE_BATCH,
+              "model": model.configuration(), "zero_lora_original_source_score_bit_exact": True,
+              "all_enabled_gradients_finite": True, "all_lora_a_b_gradients_nonzero_after_first_update": True,
+              "sparse_reload_bit_exact": True, "fresh_pinned_base_reload_bit_exact": True,
+              "loader_timing_effective_batch": EFFECTIVE_BATCH, "loader_timing_optimizer_updates": 4,
+              "stress_input_seconds": 10, "stress_measured_updates": 8,
+              "stress_seconds_per_update": sum(stress_seconds)/len(stress_seconds),
+              "stress_peak_allocated_bytes": peak, "worker_measurements": results,
+              "source_dev_records_measured": len(scores), "source_dev_seconds": seconds,
+              "source_dev_examples_per_second": val_rate, "source_train_records": len(train), "source_dev_records": len(dev),
+              "rough_epoch_hours": per_epoch/3600, "rough_30_epoch_hours": per_epoch*30/3600,
+              "timing_limitations": "small source sample and process/worker startup; changing durations/shared SSL contention; not a promised total or recipe selection",
+              "long_queue_started": False, "target_access": False}
+    save_json(args.output / "probe.json", report)
+    logger.info("PROBE PASSED | condition=%s batch%d | %.2fGiB peak | roughepoch %.2fh (short sample)",
+                args.condition, args.physical_batch, peak/1024**3, per_epoch/3600)
+    return report
+
+
+def fit(model, collator, datasets, args, provenance, logger):
+    fitting, train, dev = datasets
+    frozen = args.condition == "frozen"
+    if frozen:
+        marker = json.loads((CACHE / "complete.json").read_text())
+        bank = {}
+        for domain in FOLDS["f1"]["sources"]:
+            part = "dev" if domain == args.held_domain else "train"
+            bank[domain] = load_split(CACHE, domain, part, marker["splits"][f"{domain}/{part}"], args.data_root, logger=logger)
+        train_loader = FeatureBatches([bank[d] for d in FOLDS["f1"]["sources"] if d != args.held_domain],
+                                     "concat", "cuda", training=True, seed=args.seed)
+        val_loader = FeatureBatches([bank[args.held_domain]], "concat", "cuda", training=False, seed=args.seed)
+        optimizer = make_optimizer(model)
+    else:
+        optimizer = model.optimizer()
+        train_loader = make_audio_loader(train, collator, batch_size=args.physical_batch, workers=args.workers,
+                                        seed=args.seed, domains=fitting)
+        val_loader = make_audio_loader(dev, collator, batch_size=args.physical_batch, workers=4, seed=args.seed)
+    def score(current):
+        if frozen:
+            values, _ = score_probe(current, val_loader)
+            return values, bank[args.held_domain].labels
+        return score_audio(current, val_loader, "cuda", logger=logger)
+    best, stale = float("inf"), 0
+    with (args.output / "history.jsonl").open("x") as history:
+        for epoch in range(1, 31):
+            check_guards(provenance)
+            if frozen:
+                loss, updates = train_features(model, train_loader, optimizer, "cuda", accumulation_steps=1, logger=logger, phase=f"epoch{epoch}")
+                loss.update(samples=train_loader.count, updates=updates)
+            else:
+                loss = train_audio_epoch(model, train_loader, optimizer, "cuda", logger=logger, phase=f"epoch{epoch}")
+            scores, labels = score(model)
+            metrics = {"eer": compute_eer(labels.numpy(), scores.numpy()), "auroc": compute_auroc(labels.numpy(), scores.numpy())}
+            if metrics["eer"] < best:
+                best, best_epoch, stale, best_scores = metrics["eer"], epoch, 0, scores.clone()
+                temporary = args.output / "best_adaptation.pt.tmp"
+                if temporary.exists():
+                    raise FileExistsError("Interrupted checkpoint preserved")
+                torch.save({"trainable_state": adaptation_state(model), "epoch": epoch, "source_dev": metrics,
+                            "run_config_sha256": checkpoint_digest(args.output / "config.json")}, temporary)
+                temporary.replace(args.output / "best_adaptation.pt")
+            else:
+                stale += 1
+            history.write(json.dumps({"epoch": epoch, "training": loss, "source_dev": metrics, "best_epoch": best_epoch, "patience": stale})+"\n")
+            history.flush()
+            logger.info("EPOCH %d | held-source %s EER%.4f%% AUROC%.6f | best%d stale%d/5", epoch, args.held_domain, metrics["eer"]*100, metrics["auroc"], best_epoch, stale)
+            if stale >= 5:
+                break
+    state = torch.load(args.output / "best_adaptation.pt", map_location="cpu", weights_only=True)
+    if state["run_config_sha256"] != checkpoint_digest(args.output / "config.json"):
+        raise ValueError("Selected checkpoint recipe binding changed")
+    model.cpu()
+    del model, optimizer
+    gc.collect()
+    torch.cuda.empty_cache()
+    fresh, _, _ = load_model(AdaptationConfig(clap_final_stage=args.condition == "wavlm_lora_clap"), args.seed, "cuda", frozen=frozen)
+    restore_adaptation(fresh, state["trainable_state"])
+    scores, labels = score(fresh)
+    if not torch.equal(scores, best_scores):
+        raise ValueError("Fresh pinned-base selected-checkpoint source reload differs")
+    path = args.output / f"source_dev_{args.held_domain}.csv"
+    ids = [utterance_id(p, args.held_domain, args.data_root) for p, _ in dev.records]
+    write_score_csv(path, zip(ids, itertools.repeat(args.held_domain), labels.tolist(), scores.tolist()))
+    _, exported = read_score_csv(path, args.held_domain, expected_labels=dict(zip(ids, labels.tolist())))
+    order = sorted(range(len(ids)), key=ids.__getitem__)
+    if not np.array_equal(exported, scores.numpy()[order]):
+        raise ValueError("Canonical source export differs from reloaded scores")
+    save_json(args.output / "metrics.json", {"source_dev": state["source_dev"], "held_source": args.held_domain,
+              "best_epoch": best_epoch, "final_epoch": epoch, "scope": "selected inner-source validation, not target"})
+    save_json(args.output / "complete.json", {"best_epoch": best_epoch, "final_epoch": epoch, "fold": "f1",
+              "seed": args.seed, "held_source": args.held_domain, "condition": args.condition,
+              "config_sha256": checkpoint_digest(args.output / "config.json"),
+              "checkpoint_sha256": checkpoint_digest(args.output / "best_adaptation.pt"),
+              "source_scores_sha256": checkpoint_digest(path), "metrics_sha256": checkpoint_digest(args.output / "metrics.json"),
+              "selected_checkpoint_reloaded_and_source_verified": True, "target_access": False})
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("probe", "train"), required=True)
+    parser.add_argument("--condition", choices=CONDITIONS, required=True)
+    parser.add_argument("--held-domain", choices=FOLDS["f1"]["sources"], required=True)
+    parser.add_argument("--seed", choices=SEEDS, type=int, default=1234)
+    parser.add_argument("--physical-batch", type=int, required=True)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    if args.physical_batch < 1 or EFFECTIVE_BATCH % args.physical_batch:
+        parser.error("Physical batch must divide132")
+    if args.mode == "probe" and args.held_domain == "asv5":
+        parser.error("The canonical ASV5-train memory example must be a fitting source; use another inner hold for probes")
+    if args.condition == "frozen" and (args.mode == "probe" or args.physical_batch != 132):
+        parser.error("Frozen references use cached features/batch132 in train mode; no encoder probe needed")
+    if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(including_emulation=False):
+        raise RuntimeError("Native CUDA BF16 is required; no precision fallback")
+    torch.cuda.set_per_process_memory_fraction(10*1024**3/torch.cuda.get_device_properties(0).total_memory)
+    torch.set_num_threads(2)
+    torch.backends.nnpack.set_flags(False)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    args.output.mkdir(parents=True, exist_ok=False)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", handlers=[logging.StreamHandler(),logging.FileHandler(args.output/'run.log')])
+    logger = logging.getLogger("tf2_adaptation")
+    guards = json.loads((ROOT/'outputs/ssl_gating_20s/f2/1234/config.json').read_text())["source_sha256"]
+    paths = [Path(__file__).resolve(), ROOT/'src/audio_deepfake_detection/token_fusion/adaptation.py',
+             ROOT/'src/audio_deepfake_detection/token_fusion/adaptation_data.py', ROOT/'src/audio_deepfake_detection/token_fusion/model.py',
+             ROOT/'src/audio_deepfake_detection/lacf/pretrained.py', ROOT/'src/audio_deepfake_detection/lacf/diagnostic_cache.py',
+             ROOT/'src/audio_deepfake_detection/lacf/model.py', ROOT/'src/audio_deepfake_detection/lacf/precision.py',
+             ROOT/'src/audio_deepfake_detection/lacf/data.py', ROOT/'src/audio_deepfake_detection/lacf/probes.py',
+             ROOT/'src/audio_deepfake_detection/lacf/training.py', ROOT/'scripts/lacf/train_probes.py', ROOT/'scripts/token_fusion/train.py']
+    provenance = {"code_sha256": {str(p.relative_to(ROOT)): checkpoint_digest(p) for p in paths}, "preserved_job_guards": guards}
+    check_guards(provenance)
+    logger.info("START %s %s held-source%s; source-only, no target access", args.mode, args.condition, args.held_domain)
+    config = AdaptationConfig(clap_final_stage=args.condition == "wavlm_lora_clap")
+    marker = json.loads((CACHE / "complete.json").read_text())
+    if (checkpoint_digest(CACHE / "config.json") != marker["config_sha256"]
+            or checkpoint_digest(CACHE / "execution_accelerated.json") != marker["accelerated_execution_sha256"]):
+        raise ValueError("Preserved source-cache scientific identity changed")
+    model, collator, revisions = load_model(config, args.seed, "cuda", frozen=args.condition == "frozen")
+    data = inner_sources(args.data_root, args.held_domain)
+    membership = verify_source_membership([*data[0], data[2]], marker)
+    save_json(args.output / "config.json", {"mode": args.mode, "condition": args.condition, "held_source": args.held_domain,
+              "seed": args.seed, "model": model.configuration(), "pretrained": revisions, "provenance": provenance,
+              "torch": str(torch.__version__), "transformers": transformers.__version__, "cuda": torch.version.cuda,
+              "effective_batch": EFFECTIVE_BATCH, "physical_batch": args.physical_batch,
+              "accumulation_steps": EFFECTIVE_BATCH//args.physical_batch, "workers": args.workers,
+              "development_workers": 4, "prefetch_factor": 2, "source_partitions": membership,
+              "cache_config_sha256": marker["config_sha256"],
+              "precision": {"autocast": "bfloat16", "normalization_tf2_attention_loss": "float32", "tf32": False},
+              "optimizer": {"name": "AdamW", "fusion_lr": 3e-4, "weight_decay": 1e-4,
+                            "lora_lr": None if args.condition == "frozen" else 1e-4,
+                            "clap_lr": 1e-5 if config.clap_final_stage else None},
+              "initialization": "fresh TF2 on cached frozen features" if args.condition == "frozen" else
+                                "fresh official base plus fresh TF2 and zero-delta LoRA; no target-selected checkpoint",
+              "maximum_epochs": 30, "patience": 5, "scheduler": "constant", "resume": False, "target_access": False,
+              "gpu_allocator_budget_gib": 10, "automatic_long_queue": False})
+    logger.info("PARAMETERS %s", model.configuration().get("counts", {"fusion": model.configuration()["trainable_parameters"]}))
+    if args.mode == "probe":
+        probe(model, collator, data, args, logger)
+    else:
+        fit(model, collator, data, args, provenance, logger)
+    check_guards(provenance)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        logging.exception("RUN FAILED; partial outputs preserved, no automatic retry")
+        raise
