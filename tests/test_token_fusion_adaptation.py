@@ -213,3 +213,85 @@ def test_source_identity_check_binds_reference_labels_and_order():
     dataset.records[0]=("a",1)
     with pytest.raises(ValueError,match="Source membership differs"):
         verify_source_membership([dataset],marker)
+
+
+def test_full_f1_reads_exactly_all_three_source_train_and_dev_sets(monkeypatch,tmp_path):
+    import audio_deepfake_detection.token_fusion.adaptation_data as d
+    calls=[]
+    def read(domain,part,root):
+        calls.append((domain,part))
+        return [(str(tmp_path/domain/part/'z'),0),(str(tmp_path/domain/part/'a'),1)]
+    monkeypatch.setattr(d,'read_dataset',read)
+    monkeypatch.setattr(d,'utterance_id',lambda p,domain,root: p.rsplit('/',1)[-1])
+    fitting,train,dev=d.full_f1_sources(tmp_path)
+    sources=['asv2019','asv5','cfad']
+    assert calls==[(d,'train') for d in sources]+[(d,'dev') for d in sources]
+    assert len(fitting)==3 and len(train)==6 and list(dev)==sources
+    assert all(dataset.training for dataset in fitting)
+    assert all(not dataset.training for dataset in dev.values())
+    assert len(set(train.identifiers))==6
+
+
+def test_full_f1_macro_eer_gives_equal_weight_to_unequal_source_sizes():
+    from scripts.token_fusion.train_adaptation import development_metrics
+    labels={'asv2019':torch.tensor([0,1]),'asv5':torch.tensor([0,1]*50),'cfad':torch.tensor([0,1]*3)}
+    scores={'asv2019':torch.tensor([-1.,1.]),'asv5':torch.tensor([1.,-1.]*50),'cfad':torch.zeros(6)}
+    metrics=development_metrics(scores,labels)
+    assert metrics['by_domain']['asv2019']['eer']==0
+    assert metrics['by_domain']['asv5']['eer']==1
+    assert metrics['by_domain']['cfad']['eer']==.5
+    assert metrics['macro_eer']==.5 and metrics['macro_auroc']==.5
+
+
+def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(tmp_path,monkeypatch):
+    import logging
+    from scripts.token_fusion import train_adaptation as runner
+    class Toy(nn.Module):
+        def __init__(self):
+            super().__init__();self.weight=nn.Parameter(torch.tensor(.1))
+            self.objective=LACFLoss(ComponentConfig(semantic_loss=False,bonafide_loss=False))
+        def forward(self,b):return {'logit':self.weight*b['x']}
+        def optimizer(self):return torch.optim.SGD(self.parameters(),lr=.01)
+    sources=['asv2019','asv5','cfad']
+    def dataset(d,part,n):
+        rows=[(str(tmp_path/d/part/str(n-i)),i%2) for i in range(n)]
+        ids=[f'{d}/{part}/{n-i}' for i in range(n)]
+        return SelectedCropDataset(rows,ids,training=part=='train')
+    fitting=[dataset(d,'train',2) for d in sources]
+    train=SelectedCropDataset([r for v in fitting for r in v.records],
+                               [i for v in fitting for i in v.identifiers],training=True)
+    dev={d:dataset(d,'dev',n) for d,n in zip(sources,[2,4,6])}
+    def loader(dataset,collator,*,batch_size,**kwargs):
+        values=[{'x':torch.tensor(1. if label else -1.),'labels':torch.tensor(label)} for _,label in dataset.records]
+        return DataLoader(values,batch_size=batch_size,shuffle=False)
+    monkeypatch.setattr(runner,'make_audio_loader',loader)
+    monkeypatch.setattr(runner,'load_model',lambda config,seed,device,**kwargs:(Toy().to(device),None,{}))
+    monkeypatch.setattr(runner,'utterance_id',lambda p,d,root:p.rsplit('/',1)[-1])
+    (tmp_path/'config.json').write_text('{"full_f1":true}')
+    args=SimpleNamespace(full_f1=True,held_domain=None,condition='wavlm_lora_clap',
+        seed=1234,physical_batch=2,workers=0,data_root=tmp_path,output=tmp_path)
+    runner.fit(Toy(),None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'))
+    complete=json.loads((tmp_path/'complete.json').read_text())
+    assert complete['full_f1'] and complete['sources']==sources
+    assert complete['best_epoch']==1 and complete['final_epoch']==6
+    assert complete['selected_checkpoint_reloaded_and_source_verified']
+    assert set(complete['source_scores_sha256'])=={f'source_dev_{d}.csv' for d in sources}
+    assert not complete['target_access'] and complete['best_macro_source_dev_eer']==0
+    calibration=json.loads((tmp_path/'source_calibration.json').read_text())
+    assert set(calibration['source_stats'])==set(sources)
+    assert calibration['source_dev']['macro_eer']==0
+    for filename,digest in complete['source_scores_sha256'].items():
+        assert hashlib.sha256((tmp_path/filename).read_bytes()).hexdigest()==digest
+
+
+@pytest.mark.parametrize('extra',[['--held-domain','asv2019'],['--mode','probe']])
+def test_full_f1_rejects_inner_hold_or_probe_before_gpu_access(tmp_path,monkeypatch,extra):
+    import sys
+    from scripts.token_fusion import train_adaptation as runner
+    argv=['train_adaptation','--mode','train','--condition','wavlm_lora_clap','--full-f1',
+          '--physical-batch','22','--output',str(tmp_path/'never_created')]
+    if extra==['--mode','probe']:argv[2]='probe'
+    else:argv+=extra
+    monkeypatch.setattr(sys,'argv',argv)
+    with pytest.raises(SystemExit) as error:runner.main()
+    assert error.value.code==2 and not (tmp_path/'never_created').exists()

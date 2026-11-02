@@ -1,5 +1,27 @@
 # Cross-domain experiment protocol (v4)
 
+## Full F1 TF2 adaptation owner correction (2026-11-01)
+
+The owner stopped the two-source pilot and explicitly requested/reconfirmed
+fresh full F1 training. This latest scope supersedes the 31 October inner pilot
+for this run only. Train ASV2019 + ASV5 + CFAD (246,137 canonical source train
+recordings); score all three source development sets (180,194 total) separately.
+Strict equal-domain macro EER selects; ties retain earlier, maximum30/patience5.
+Preserve seed1234, rank8/alpha16 Q/V LoRA in all12 WavLM blocks, CLAP final audio
+stage/projection adaptation, existing TF2 BCE head and approved optimizer/precision.
+Physical22/accum6/effective132, 8train/4dev workers/prefetch2, CPUthreads2,
+10GiB allocator cap protect SSLF2. Use `--mode train --full-f1` without an inner
+held source. Start fresh from official bases and TF2 initialization, never pilot
+weights. Stopped pilot checkpoints/logs are retained as a separate diagnostic.
+
+Checkpoint completion requires exact fresh-base reload of all three complete
+source dev score vectors, canonical exports and source-only calibration.
+SpeechFake remains excluded from training, development, selection and calibration;
+this launch does not authorize target evaluation or any automatic next run.
+Full-source development results are not inner-held-domain estimates. The method
+remains exploratory after earlier target exposure; this scope correction changes
+no architecture/LR/loss from the approved TF2 adaptation. No commit or push.
+
 ## Exploratory TF2 encoder adaptation authorized (2026-10-31)
 
 

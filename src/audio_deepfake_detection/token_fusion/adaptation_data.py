@@ -54,19 +54,31 @@ class ViewSampler(Sampler):
         return iter(zip(order.tolist(), views.tolist()))
 
 
+def source_split(data_root, domain, part):
+    records = read_dataset(domain, part, data_root)
+    ids = [f"{domain}/{part}/{utterance_id(p, domain, data_root)}" for p, _ in records]
+    return SelectedCropDataset(records, ids, training=part == "train")
+
+
+def combined_sources(fitting):
+    return SelectedCropDataset([r for d in fitting for r in d.records],
+                               [i for d in fitting for i in d.identifiers], training=True)
+
+
 def inner_sources(data_root, held):
     if held not in FOLDS["f1"]["sources"]:
         raise ValueError("Only F1 source inner rotations; targets remain held")
-    datasets = {}
-    for domain in FOLDS["f1"]["sources"]:
-        part = "dev" if domain == held else "train"
-        records = read_dataset(domain, part, data_root)
-        ids = [f"{domain}/{part}/{utterance_id(p,domain,data_root)}" for p, _ in records]
-        datasets[domain] = SelectedCropDataset(records, ids, training=part == "train")
+    datasets = {d: source_split(data_root, d, "dev" if d == held else "train")
+                for d in FOLDS["f1"]["sources"]}
     fitting = [datasets[d] for d in FOLDS["f1"]["sources"] if d != held]
-    combined = SelectedCropDataset([r for d in fitting for r in d.records],
-                                    [i for d in fitting for i in d.identifiers], training=True)
-    return fitting, combined, datasets[held]
+    return fitting, combined_sources(fitting), datasets[held]
+
+
+def full_f1_sources(data_root):
+    sources = FOLDS["f1"]["sources"]
+    fitting = [source_split(data_root, d, "train") for d in sources]
+    development = {d: source_split(data_root, d, "dev") for d in sources}
+    return fitting, combined_sources(fitting), development
 
 
 def make_audio_loader(dataset, collator, *, batch_size, workers, seed, domains=None):

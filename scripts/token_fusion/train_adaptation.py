@@ -1,4 +1,4 @@
-"""Source-only TF2 encoder adaptation. Probe now; long fits need owner launch."""
+"""Source-only TF2 adaptation: explicit full-F1 or inner-source fitting."""
 
 import argparse
 import gc
@@ -6,6 +6,7 @@ import itertools
 import json
 import logging
 import math
+import statistics
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,10 +20,10 @@ from audio_deepfake_detection.lacf.diagnostic_cache import all_layer_features
 from audio_deepfake_detection.lacf.pretrained import DualViewCollator
 from audio_deepfake_detection.lacf.probes import FeatureBatches, load_split, score_probe
 from audio_deepfake_detection.lacf.training import device_batch, report_progress, make_optimizer, train_epoch as train_features
-from audio_deepfake_detection.metrics import compute_auroc, compute_eer, read_score_csv, write_score_csv
+from audio_deepfake_detection.metrics import calibrate_source_scores, compute_auroc, compute_eer, read_score_csv, write_score_csv
 from audio_deepfake_detection.protocol import FOLDS, checkpoint_digest, utterance_id
 from audio_deepfake_detection.token_fusion.adaptation import AdaptationConfig, AdaptedTF2
-from audio_deepfake_detection.token_fusion.adaptation_data import inner_sources, make_audio_loader, verify_source_membership
+from audio_deepfake_detection.token_fusion.adaptation_data import full_f1_sources, inner_sources, make_audio_loader, verify_source_membership
 from audio_deepfake_detection.token_fusion.model import TokenFusion
 from scripts.lacf.train_probes import seed_all
 from scripts.token_fusion.train import ROOT, SEEDS, check_guards, save_json
@@ -274,42 +275,59 @@ def probe(model, collator, datasets, args, logger):
     return report
 
 
+def development_metrics(scores, labels):
+    by_domain = {d: {"eer": compute_eer(labels[d].numpy(), values.numpy()),
+                     "auroc": compute_auroc(labels[d].numpy(), values.numpy())}
+                 for d, values in scores.items()}
+    return {"by_domain": by_domain,
+            "macro_eer": statistics.mean(m["eer"] for m in by_domain.values()),
+            "macro_auroc": statistics.mean(m["auroc"] for m in by_domain.values())}
+
+
 def fit(model, collator, datasets, args, provenance, logger):
-    fitting, train, dev = datasets
+    fitting, train, development = datasets
+    dev = development if args.full_f1 else {args.held_domain: development}
+    device = next(model.parameters()).device
     frozen = args.condition == "frozen"
     if frozen:
         marker = json.loads((CACHE / "complete.json").read_text())
         bank = {}
-        for domain in FOLDS["f1"]["sources"]:
-            part = "dev" if domain == args.held_domain else "train"
-            bank[domain] = load_split(CACHE, domain, part, marker["splits"][f"{domain}/{part}"], args.data_root, logger=logger)
-        train_loader = FeatureBatches([bank[d] for d in FOLDS["f1"]["sources"] if d != args.held_domain],
-                                     "concat", "cuda", training=True, seed=args.seed)
-        val_loader = FeatureBatches([bank[args.held_domain]], "concat", "cuda", training=False, seed=args.seed)
+        for dataset in [*fitting, *dev.values()]:
+            domain, part, _ = dataset.identifiers[0].split("/", 2)
+            bank[domain, part] = load_split(CACHE, domain, part, marker["splits"][f"{domain}/{part}"], args.data_root, logger=logger)
+        train_loader = FeatureBatches([bank[d.identifiers[0].split("/", 1)[0], "train"] for d in fitting],
+                                     "concat", device, training=True, seed=args.seed)
+        val_loaders = {d: FeatureBatches([bank[d, "dev"]], "concat", device, training=False, seed=args.seed) for d in dev}
         optimizer = make_optimizer(model)
     else:
         optimizer = model.optimizer()
         train_loader = make_audio_loader(train, collator, batch_size=args.physical_batch, workers=args.workers,
                                         seed=args.seed, domains=fitting)
-        val_loader = make_audio_loader(dev, collator, batch_size=args.physical_batch, workers=4, seed=args.seed)
+        val_loaders = {d: make_audio_loader(dataset, collator, batch_size=args.physical_batch, workers=4, seed=args.seed)
+                       for d, dataset in dev.items()}
     def score(current):
-        if frozen:
-            values, _ = score_probe(current, val_loader)
-            return values, bank[args.held_domain].labels
-        return score_audio(current, val_loader, "cuda", logger=logger)
+        values, labels = {}, {}
+        for domain, loader in val_loaders.items():
+            logger.info("DEV %s | %d centered source recordings", domain, len(dev[domain]))
+            if frozen:
+                values[domain], _ = score_probe(current, loader)
+                labels[domain] = bank[domain, "dev"].labels
+            else:
+                values[domain], labels[domain] = score_audio(current, loader, device, logger=logger)
+        return values, labels, development_metrics(values, labels)
     best, stale = float("inf"), 0
     with (args.output / "history.jsonl").open("x") as history:
         for epoch in range(1, 31):
             check_guards(provenance)
             if frozen:
-                loss, updates = train_features(model, train_loader, optimizer, "cuda", accumulation_steps=1, logger=logger, phase=f"epoch{epoch}")
+                loss, updates = train_features(model, train_loader, optimizer, device, accumulation_steps=1, logger=logger, phase=f"epoch{epoch}")
                 loss.update(samples=train_loader.count, updates=updates)
             else:
-                loss = train_audio_epoch(model, train_loader, optimizer, "cuda", logger=logger, phase=f"epoch{epoch}")
-            scores, labels = score(model)
-            metrics = {"eer": compute_eer(labels.numpy(), scores.numpy()), "auroc": compute_auroc(labels.numpy(), scores.numpy())}
-            if metrics["eer"] < best:
-                best, best_epoch, stale, best_scores = metrics["eer"], epoch, 0, scores.clone()
+                loss = train_audio_epoch(model, train_loader, optimizer, device, logger=logger, phase=f"epoch{epoch}")
+            scores, labels, metrics = score(model)
+            if metrics["macro_eer"] < best:
+                best, best_epoch, stale = metrics["macro_eer"], epoch, 0
+                best_scores = {d: value.clone() for d, value in scores.items()}
                 temporary = args.output / "best_adaptation.pt.tmp"
                 if temporary.exists():
                     raise FileExistsError("Interrupted checkpoint preserved")
@@ -320,7 +338,8 @@ def fit(model, collator, datasets, args, provenance, logger):
                 stale += 1
             history.write(json.dumps({"epoch": epoch, "training": loss, "source_dev": metrics, "best_epoch": best_epoch, "patience": stale})+"\n")
             history.flush()
-            logger.info("EPOCH %d | held-source %s EER%.4f%% AUROC%.6f | best%d stale%d/5", epoch, args.held_domain, metrics["eer"]*100, metrics["auroc"], best_epoch, stale)
+            logger.info("EPOCH %d | macro source EER%.4f%% AUROC%.6f | by_domain=%s | best%d stale%d/5",
+                        epoch, metrics["macro_eer"]*100, metrics["macro_auroc"], metrics["by_domain"], best_epoch, stale)
             if stale >= 5:
                 break
     state = torch.load(args.output / "best_adaptation.pt", map_location="cpu", weights_only=True)
@@ -329,40 +348,59 @@ def fit(model, collator, datasets, args, provenance, logger):
     model.cpu()
     del model, optimizer
     gc.collect()
-    torch.cuda.empty_cache()
-    fresh, _, _ = load_model(AdaptationConfig(clap_final_stage=args.condition == "wavlm_lora_clap"), args.seed, "cuda", frozen=frozen)
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    fresh, _, _ = load_model(AdaptationConfig(clap_final_stage=args.condition == "wavlm_lora_clap"), args.seed, device, frozen=frozen)
     restore_adaptation(fresh, state["trainable_state"])
-    scores, labels = score(fresh)
-    if not torch.equal(scores, best_scores):
+    scores, labels, metrics = score(fresh)
+    if metrics != state["source_dev"] or any(not torch.equal(scores[d], best_scores[d]) for d in dev):
         raise ValueError("Fresh pinned-base selected-checkpoint source reload differs")
-    path = args.output / f"source_dev_{args.held_domain}.csv"
-    ids = [utterance_id(p, args.held_domain, args.data_root) for p, _ in dev.records]
-    write_score_csv(path, zip(ids, itertools.repeat(args.held_domain), labels.tolist(), scores.tolist()))
-    _, exported = read_score_csv(path, args.held_domain, expected_labels=dict(zip(ids, labels.tolist())))
-    order = sorted(range(len(ids)), key=ids.__getitem__)
-    if not np.array_equal(exported, scores.numpy()[order]):
-        raise ValueError("Canonical source export differs from reloaded scores")
-    save_json(args.output / "metrics.json", {"source_dev": state["source_dev"], "held_source": args.held_domain,
-              "best_epoch": best_epoch, "final_epoch": epoch, "scope": "selected inner-source validation, not target"})
+    hashes, calibration_inputs = {}, {}
+    for domain, dataset in dev.items():
+        path = args.output / f"source_dev_{domain}.csv"
+        ids = [utterance_id(p, domain, args.data_root) for p, _ in dataset.records]
+        write_score_csv(path, zip(ids, itertools.repeat(domain), labels[domain].tolist(), scores[domain].tolist()))
+        exported_labels, exported = read_score_csv(path, domain, expected_labels=dict(zip(ids, labels[domain].tolist())))
+        order = sorted(range(len(ids)), key=ids.__getitem__)
+        if not np.array_equal(exported, scores[domain].numpy()[order]):
+            raise ValueError("Canonical source export differs from reloaded scores")
+        hashes[path.name] = checkpoint_digest(path)
+        calibration_inputs[domain] = exported_labels, exported
+    calibration = calibrate_source_scores(calibration_inputs)
+    if not math.isclose(calibration["source_dev"]["macro_eer"], best, abs_tol=1e-14, rel_tol=0):
+        raise ValueError("Source calibration disagrees with checkpoint selection")
+    save_json(args.output / "source_calibration.json", calibration)
+    scope = "full F1 sources; equal-domain macro development selection" if args.full_f1 else "inner-source development selection"
+    save_json(args.output / "metrics.json", {"source_dev": metrics, "held_source": args.held_domain,
+              "sources": list(dev), "best_epoch": best_epoch, "final_epoch": epoch, "scope": scope})
     save_json(args.output / "complete.json", {"best_epoch": best_epoch, "final_epoch": epoch, "fold": "f1",
               "seed": args.seed, "held_source": args.held_domain, "condition": args.condition,
+              "full_f1": args.full_f1, "sources": list(dev), "best_macro_source_dev_eer": best,
               "config_sha256": checkpoint_digest(args.output / "config.json"),
               "checkpoint_sha256": checkpoint_digest(args.output / "best_adaptation.pt"),
-              "source_scores_sha256": checkpoint_digest(path), "metrics_sha256": checkpoint_digest(args.output / "metrics.json"),
+              "source_scores_sha256": hashes,
+              "calibration_sha256": checkpoint_digest(args.output / "source_calibration.json"),
+              "metrics_sha256": checkpoint_digest(args.output / "metrics.json"),
               "selected_checkpoint_reloaded_and_source_verified": True, "target_access": False})
+    logger.info("COMPLETE | %s | all %d source dev sets reload-verified; no target evaluation", scope, len(dev))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("probe", "train"), required=True)
     parser.add_argument("--condition", choices=CONDITIONS, required=True)
-    parser.add_argument("--held-domain", choices=FOLDS["f1"]["sources"], required=True)
+    parser.add_argument("--held-domain", choices=FOLDS["f1"]["sources"])
+    parser.add_argument("--full-f1", action="store_true", help="Train on all three F1 sources; select by macro source-dev EER")
     parser.add_argument("--seed", choices=SEEDS, type=int, default=1234)
     parser.add_argument("--physical-batch", type=int, required=True)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.full_f1 and (args.held_domain is not None or args.mode != "train"):
+        parser.error("Full F1 is train mode with all three sources; do not specify a held source")
+    if not args.full_f1 and args.held_domain is None:
+        parser.error("Inner-source mode requires --held-domain; use --full-f1 for all three F1 sources")
     if args.physical_batch < 1 or EFFECTIVE_BATCH % args.physical_batch:
         parser.error("Physical batch must divide132")
     if args.mode == "probe" and args.held_domain == "asv5":
@@ -389,16 +427,23 @@ def main():
              ROOT/'src/audio_deepfake_detection/lacf/training.py', ROOT/'scripts/lacf/train_probes.py', ROOT/'scripts/token_fusion/train.py']
     provenance = {"code_sha256": {str(p.relative_to(ROOT)): checkpoint_digest(p) for p in paths}, "preserved_job_guards": guards}
     check_guards(provenance)
-    logger.info("START %s %s held-source%s; source-only, no target access", args.mode, args.condition, args.held_domain)
+    logger.info("START %s %s | full_f1=%s held-source=%s; source-only, no target access",
+                args.mode, args.condition, args.full_f1, args.held_domain)
     config = AdaptationConfig(clap_final_stage=args.condition == "wavlm_lora_clap")
     marker = json.loads((CACHE / "complete.json").read_text())
     if (checkpoint_digest(CACHE / "config.json") != marker["config_sha256"]
             or checkpoint_digest(CACHE / "execution_accelerated.json") != marker["accelerated_execution_sha256"]):
         raise ValueError("Preserved source-cache scientific identity changed")
     model, collator, revisions = load_model(config, args.seed, "cuda", frozen=args.condition == "frozen")
-    data = inner_sources(args.data_root, args.held_domain)
-    membership = verify_source_membership([*data[0], data[2]], marker)
+    data = full_f1_sources(args.data_root) if args.full_f1 else inner_sources(args.data_root, args.held_domain)
+    development = data[2] if args.full_f1 else {args.held_domain: data[2]}
+    membership = verify_source_membership([*data[0], *development.values()], marker)
     save_json(args.output / "config.json", {"mode": args.mode, "condition": args.condition, "held_source": args.held_domain,
+              "fold": "f1", "full_f1": args.full_f1,
+              "scope": "full F1 source train/dev" if args.full_f1 else "inner-source train/dev",
+              "training_sources": [d.identifiers[0].split("/", 1)[0] for d in data[0]],
+              "development_sources": list(development),
+              "selection": "strict equal-domain macro source-dev EER; ties retain earlier",
               "seed": args.seed, "model": model.configuration(), "pretrained": revisions, "provenance": provenance,
               "torch": str(torch.__version__), "transformers": transformers.__version__, "cuda": torch.version.cuda,
               "effective_batch": EFFECTIVE_BATCH, "physical_batch": args.physical_batch,
@@ -413,6 +458,9 @@ def main():
                                 "fresh official base plus fresh TF2 and zero-delta LoRA; no target-selected checkpoint",
               "maximum_epochs": 30, "patience": 5, "scheduler": "constant", "resume": False, "target_access": False,
               "gpu_allocator_budget_gib": 10, "automatic_long_queue": False})
+    logger.info("DATA | train sources=%s records=%d | dev=%s | full_f1=%s",
+                [d.identifiers[0].split("/", 1)[0] for d in data[0]], len(data[1]),
+                {d: len(v) for d, v in development.items()}, args.full_f1)
     logger.info("PARAMETERS %s", model.configuration().get("counts", {"fusion": model.configuration()["trainable_parameters"]}))
     if args.mode == "probe":
         probe(model, collator, data, args, logger)

@@ -67,6 +67,21 @@ runtime guards and prior outputs; no target evaluation, automatic later runs,
 resume, retry, overwrite, commit or push. Stop on failure. See local handoff
 for launch/status; a pilot launch does not establish completed validation.
 
+## Full F1 adaptation supersedes the pilot (2026-11-01)
+
+Owner explicitly stopped the two-source TF2 pilot and requested a fresh full F1
+run, then reconfirmed launch. Train on ASV2019, ASV5 and CFAD train; select by
+strict equal-weight macro EER over their three development sets, ties earlier.
+Use seed1234, all12-block rank8 Q/V LoRA plus CLAP final audio stage/projection,
+and the approved TF2/LR/BF16-FP32/max30/patience5 recipe. Retain validated
+physical22/accum6/effective132, 8train/4dev workers/prefetch2 and10GiB cap.
+Start from pinned official base weights and fresh TF2; never resume or initialize
+from the stopped pilot. Preserve its artifacts with owner-stop provenance and
+preserve SSLF2. This one full-fold run overrides the previous inner-pilot scope;
+new target evaluation, other folds/seeds, retries and automatic publication are
+not authorized. Score/reload all three source dev sets and save source calibration
+before completion. Record live status in the local handoff.
+
 ## Implementation style
 
 - Keep the layout simple: reusable code under `src/audio_deepfake_detection/`, model entry points under `scripts/<model>/`, synthetic tests under `tests/`, research notes under `docs/`, references under `references/`. Keep `README.md` and `AGENTS.md` at the project root for onboarding and instruction discovery.
