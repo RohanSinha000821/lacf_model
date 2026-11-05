@@ -82,8 +82,68 @@ new target evaluation, other folds/seeds, retries and automatic publication are
 not authorized. Score/reload all three source dev sets and save source calibration
 before completion. Record live status in the local handoff.
 
+## SSL F2 evaluation and F4 training authorized (2026-11-03)
+
+The owner authorizes native P1 evaluation of completed SSL-gating20s F2
+seed1234 and fresh SSL-gating20s F4 seed1234 training on SSH2. For F2,
+verify the selected checkpoint and reproduce all three source-dev results and
+calibration before opening CFAD unseen test. Retain full-recording batch1/FP32,
+raw and separately labelled transductive transfer and the shared bootstrap.
+For F4, use ASV5, CFAD and SpeechFake source train/dev only; retain the approved
+version2 batch5/FP32, training-only20s crops, full-recording development,
+Adam3e-6/wd1e-4/constantLR/CE+CKA/max10/patience3 recipe, workers16/4,
+prefetch2, CPUthreads2 and19GiB allocator guard. Start from pinned official
+XLS-R and a fresh backend. Preserve active full-F1 TF2 and its source guards;
+use bounded source-only resource checks and sequence the SSL jobs if they
+cannot safely share the GPU. Stop on failure without resume, retry, overwrite
+or scientific recipe changes. F4 target evaluation, other folds/seeds and
+external targets remain unauthorized. No automatic commit or push.
+Later same-day owner clarification: start F4 training immediately and defer F2
+evaluation. Do not queue F2 evaluation automatically after F4.
+
 ## Implementation style
+
+- Owner recovery decision, 2026-11-05: after the confirmed server shutdown,
+  restart only TF2 full F1 from its source-selected epoch4 adaptation weights
+  in a new output directory. Use `--recover-from` with the preserved best
+  checkpoint and identical source/base/model/input/optimizer settings. This
+  narrowly overrides fresh-initialization/no-retry restrictions for this
+  recovery run; optimizer/RNG/sampler restart fresh, patience restarts at0,
+  logical epochs continue5–30 and the inherited epoch4 best remains eligible.
+  Disclose weights-only recovery, never exact resume. Save latest completed
+  epoch weights/optimizer as well as the selected best. Preserve all interrupted
+  artifacts and source-only reload/calibration gates. No target evaluation,
+  SSL restart/recipe changes, other fits or publication are authorized; SSL
+  speed options were requested as suggestions only.
 
 - Keep the layout simple: reusable code under `src/audio_deepfake_detection/`, model entry points under `scripts/<model>/`, synthetic tests under `tests/`, research notes under `docs/`, references under `references/`. Keep `README.md` and `AGENTS.md` at the project root for onboarding and instruction discovery.
 - Preserve unrelated user changes. Use conservative cleanup; do not delete research notes, run records or data as incidental tidying.
 - Update README, paper notes and protocol when a requested change materially affects instructions or the study recipe. Do not represent CPU synthetic feasibility as completed GPU/real-data validation.
+
+## Later SSL partial-fine-tuning authorization (2026-11-05)
+
+The owner approves the suggested faster SSL adaptation and requests F4 launch;
+other folds may use this variant later but are not automatically queued. This
+supersedes the earlier same-day SSL-suggestions-only hold. Use a separate family
+`ssl_gating_20s_top4_bf16`: freeze the frontend and first20 XLS-R blocks, train
+last4 and the unchanged complete gating backend. Retain original encoder
+SpecAugment/dropout/layerdrop in train mode; disable HF's forced input gradients
+for the frozen convolutional frontend. Keep all25 layer features, training20s,
+full batch-one dev, domain-balanced natural classes, CE+CKA, Adam3e-6/wd1e-4,
+constantLR, max10/patience3 and strict source macro EER/ties earlier. Use BF16
+with FP32 pooling/CE/CKA/scores. Source-only timing selects batch24/accum1,
+8train/4dev workers/prefetch2/CPUthreads2/19GiB cap, without LR scaling.
+Start F4 seed1234 fresh from pinned official XLS-R and a fresh backend; do not
+use interrupted F4 or timing weights. Preserve TF2 recovery and its guarded
+original SSL files: implement only new variant files. Keep original full-FT
+results separate; larger batches also change the batch-based CKA objective.
+Save atomic15minute/end-of-training-phase snapshots plus epoch best/last;
+snapshots are not completion markers or exact mid-epoch resume. No target
+evaluation, other launch, automatic retry/overwrite, commit or push.
+
+Later owner publication request, 5November: publish the reviewed SSL partial
+variant, TF2 weights-recovery support, focused tests and public documentation,
+then provide SSH1 synchronization instructions. This overrides publication
+holds only; preserve active source bytes/jobs and exclude local records,
+outputs, datasets, pretrained weights and reference originals. Do not infer
+additional fold launches or evaluation permission from synchronization.

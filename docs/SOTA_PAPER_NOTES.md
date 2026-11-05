@@ -498,3 +498,27 @@ checkpointing or mixed precision needed for these bounded checks. Final F1
 starts from original pretrained XLS-R and fresh head, never timing weights.
 Evidence: outputs/ssl_gating20s_f1_launch_20261022/. SSH2 is prepared for later
 source training only; additional folds/seeds and target evaluation are not queued.
+
+
+## SSL top-four/BF16 compute-budget adaptation (owner decision, 2026-11-05)
+
+After the server shutdown interrupted the original F4 in epoch1, the owner
+authorizes a separate faster partial-fine-tuning variant. The original paper
+section4.3 was rechecked from the actual supplied PDF: batch5, Adam3e-6,
+wd1e-4, weightedCE0.9/0.1, patience3 and full batch-one evaluation. Partial
+freezing, BF16 and batch24 are owner adaptations, not a published recipe.
+All25 states and the original gating/MultiConv/pooling/classifier topology
+remain. Frozen frontend/blocks0–19 have no parameter or input gradients;
+blocks20–23 and the backend train (53,029,762 parameters). Training stochastic
+SpecAugment/dropout/layerdrop is retained, including in the frozen prefix.
+BF16 uses FP32 pooling, CE, differentiable CKA and score subtraction.
+
+Source-only memory/throughput checks select batch24/8train/4dev workers,
+prefetch2,CPUthreads2,19GiB cap with the unchanged LR/optimizer/CE+CKA/20s/full
+dev/macro-EER selection recipe. Larger batches also change CE/CKA statistics;
+this comparison cannot isolate freezing alone.37 synthetic CPU checks pass;
+actual source20s optimizer checks and full129.75s fresh-reload parity pass.
+These are bounded checks, not complete F4 validation or evidence of target
+accuracy/speed. Only fresh F4seed1234 is launched under the new family
+ssl_gating_20s_top4_bf16; full-FT F1–F3 remain separate. No target evaluation,
+other-fold queue or implicit alteration to the original baseline is authorized.

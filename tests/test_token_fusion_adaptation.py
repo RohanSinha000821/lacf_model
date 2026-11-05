@@ -243,7 +243,8 @@ def test_full_f1_macro_eer_gives_equal_weight_to_unequal_source_sizes():
     assert metrics['macro_eer']==.5 and metrics['macro_auroc']==.5
 
 
-def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(tmp_path,monkeypatch):
+@pytest.mark.parametrize('recover',[False,True])
+def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(tmp_path,monkeypatch,recover):
     import logging
     from scripts.token_fusion import train_adaptation as runner
     class Toy(nn.Module):
@@ -270,10 +271,18 @@ def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(
     (tmp_path/'config.json').write_text('{"full_f1":true}')
     args=SimpleNamespace(full_f1=True,held_domain=None,condition='wavlm_lora_clap',
         seed=1234,physical_batch=2,workers=0,data_root=tmp_path,output=tmp_path)
-    runner.fit(Toy(),None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'))
+    initial=Toy()
+    recovery=None
+    if recover:
+        metrics={'by_domain':{d:{'eer':0.,'auroc':1.} for d in sources},'macro_eer':0.,'macro_auroc':1.}
+        recovery={'trainable_state':initial.state_dict(),'epoch':4,'source_dev':metrics}
+        # A different fresh initialization must be overwritten before the optimizer starts.
+        with torch.no_grad():initial.weight.fill_(.8)
+        recovery['trainable_state']={'weight':torch.tensor(.1)}
+    runner.fit(initial,None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'),recovery=recovery)
     complete=json.loads((tmp_path/'complete.json').read_text())
     assert complete['full_f1'] and complete['sources']==sources
-    assert complete['best_epoch']==1 and complete['final_epoch']==6
+    assert complete['best_epoch']==(4 if recover else 1) and complete['final_epoch']==(9 if recover else 6)
     assert complete['selected_checkpoint_reloaded_and_source_verified']
     assert set(complete['source_scores_sha256'])=={f'source_dev_{d}.csv' for d in sources}
     assert not complete['target_access'] and complete['best_macro_source_dev_eer']==0
@@ -282,6 +291,43 @@ def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(
     assert calibration['source_dev']['macro_eer']==0
     for filename,digest in complete['source_scores_sha256'].items():
         assert hashlib.sha256((tmp_path/filename).read_bytes()).hexdigest()==digest
+    last=torch.load(tmp_path/'last_adaptation.pt',map_location='cpu',weights_only=True)
+    assert last['epoch']==complete['final_epoch'] and last['patience']==5
+    assert 'optimizer_state_dict' in last and last['best_epoch']==complete['best_epoch']
+    history=[json.loads(line) for line in (tmp_path/'history.jsonl').read_text().splitlines()]
+    assert history[0]['epoch']==(5 if recover else 1)
+    if recover:
+        best=torch.load(tmp_path/'best_adaptation.pt',map_location='cpu',weights_only=True)
+        assert best['trainable_state']['weight'].item()==pytest.approx(.1)
+
+
+def test_weights_recovery_binds_parent_recipe_and_rejects_mismatch(tmp_path):
+    from scripts.token_fusion import train_adaptation as runner
+    fields=('condition','fold','held_source','model','pretrained','training_sources','selection',
+            'source_partitions','cache_config_sha256','physical_batch','effective_batch','accumulation_steps',
+            'workers','development_workers','prefetch_factor','precision','optimizer','scheduler','patience')
+    config=dict.fromkeys(fields, 'same')
+    config.update(mode='train',full_f1=True,seed=1234,condition='wavlm_lora_clap',target_access=False,
+                  development_sources=['asv2019','asv5','cfad'],maximum_epochs=30,
+                  provenance={'code_sha256':{},'preserved_job_guards':{}})
+    parent=tmp_path/'parent';parent.mkdir()
+    (parent/'config.json').write_text(json.dumps(config))
+    metrics={'by_domain':{d:{'eer':.1,'auroc':.9} for d in config['development_sources']},
+             'macro_eer':.1,'macro_auroc':.9}
+    state={'epoch':4,'source_dev':metrics,'trainable_state':{'weight':torch.tensor(.1)},
+           'run_config_sha256':hashlib.sha256((parent/'config.json').read_bytes()).hexdigest()}
+    path=parent/'best_adaptation.pt';torch.save(state,path)
+    original=path.read_bytes()
+    loaded,record=runner.load_weights_recovery(path,config)
+    assert loaded['epoch']==4 and record['first_epoch']==5
+    assert not record['optimizer_restored'] and not record['rng_or_sampler_restored']
+    assert not record['exact_training_resume'] and record['maximum_logical_epoch']==30
+    assert path.read_bytes()==original
+    with pytest.raises(ValueError,match='recipe'):
+        runner.load_weights_recovery(path,{**config,'seed':1235})
+    state['run_config_sha256']='changed';torch.save(state,path)
+    with pytest.raises(ValueError,match='bound'):
+        runner.load_weights_recovery(path,config)
 
 
 @pytest.mark.parametrize('extra',[['--held-domain','asv2019'],['--mode','probe']])

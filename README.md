@@ -486,6 +486,30 @@ No queue or launch is implied. The existing three-seed plan remains
 `1234,2345,3456` for this new family, unless the owner changes it. P2–P4 native
 export integration remains separate work.
 
+### Separate SSL top-four/BF16 adaptation (owner decision, 5 November)
+
+The faster variant is `sota/ssl_gating_partial.py` with entrypoint
+`scripts/ssl_gating/train_partial.py`. It freezes the frontend/first20 XLS-R
+blocks and trains the last4 plus the existing gating backend (53,029,762
+parameters), retaining all25 states. Its family is `ssl_gating_20s_top4_bf16`;
+do not combine its results with the original full-FT/FP32 family. Source-tested
+settings are batch24,8train/4dev workers,prefetch2,19GiB cap and BF16 with FP32
+pooling/losses/scores; original LR, loss,20s training/full development and
+selection settings remain. See the dated protocol for caveats and evidence.
+Only F4seed1234 is authorized for launch now; this example does not authorize
+other folds or evaluation:
+
+```bash
+python -u -m scripts.ssl_gating.train_partial --fold f4 --seed 1234 --batch-size 24 --num-workers 8 --eval-workers 4 --prefetch-factor 2 --gpu-memory-budget-gib 19
+```
+
+Outputs: `outputs/ssl_gating_20s_top4_bf16/<fold>/<seed>/`. Intermediate
+`recovery.pt` snapshots are written every15minutes/end of training phase;
+best/last checkpoints are saved after source development. Completion requires
+full-source fresh-checkpoint reload and source calibration. Exact mid-epoch
+resume is not implemented. The original FP32 evaluator is for the original
+family; it must not be used to score this BF16 variant as though identical.
+
 ## LACF: primary frozen implementation
 
 LACF lives separately from the SOTA adapters under

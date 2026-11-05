@@ -1,5 +1,103 @@
 # Cross-domain experiment protocol (v4)
 
+## Later SSL top-four/BF16 adaptation approved (2026-11-05)
+
+The owner now approves the faster SSL variant and fresh F4 training, overriding
+the earlier same-day SSL-suggestions-only hold. Keep it separate from full-FT
+`ssl_gating_20s` as `ssl_gating_20s_top4_bf16`; future folds must use the same
+declared variant for a matched summary. Only F4 seed1234 is launched now;
+other folds/seeds and all target evaluation remain separately authorized work.
+
+Freeze all XLS-R frontend weights and Transformer blocks0–19; train blocks20–23
+and the complete original gating backend (53,029,762 trainable of318,083,586
+total parameters). Preserve all25 hidden representations and original training
+SpecAugment/dropout/layerdrop; frozen weights do not mean deterministic frozen
+features. Disable HF's forced convolution-input gradients so no backward graph
+is retained through the frozen prefix. Use BF16 autocast with FP32 attentive
+pooling, CE, CKA and score subtraction. Preserve training-only up-to20s after
+16kHz resampling, dynamic training padding and full unpadded batch-one dev.
+Keep domain-uniform/natural-class replacement sampling, CE[0.9,0.1]+CKA1,
+Adam3e-6/wd1e-4/constantLR, max10/patience3 and strict equal-domain macro source
+EER/ties earlier. No automatic LR scaling or scientific selection on targets.
+
+Bounded source execution tests select batch24/accum1/effective24,8train/4dev
+workers,prefetch2,CPUthreads2 and19GiB allocator cap. Batch32 exceeded the cap;
+its failed probe is preserved. Batch24's all24-block20s stress peaked at
+11.94GiB allocated/16.03GiB reserved; mixed real batches reached17.55GiB
+reserved. Short real-source worker timings were22.55audio/s with8 workers and
+19.81 with16; these are not full-epoch guarantees. A native129.75s source input
+and strict fresh checkpoint reconstruction matched exactly; no target was read.
+Batch changes alter weighted CE/CKA batch statistics, so this is a disclosed
+compute-budget adaptation, not an exact paper reproduction or a pure freezing
+ablation. Full-FT F1–F3 must not be pooled with partial-FT F4 as one recipe.
+
+Keep original baseline files and interrupted outputs intact; TF2 guards those
+files. New model/trainer live in `sota/ssl_gating_partial.py` and
+`scripts/ssl_gating/train_partial.py`. Initialize fresh from the pinned official
+XLS-R plus fresh backend; discard all probe updates. Save atomic intermediate
+model/optimizer snapshots every15minutes and after each training phase; these
+are not completion and do not implement exact mid-epoch worker/RNG resume.
+Epoch best/last and final full-source fresh-reload/calibration remain mandatory.
+No automatic retry, overwrite, target evaluation, other fold, commit or push.
+
+## TF2 weights-only shutdown recovery (2026-11-05)
+
+Following the5November system shutdown, the owner requests restarting TF2
+while discussing SSL speed options only. The preserved TF2 full-F1 checkpoint
+contains selected epoch4 weights/source metrics, not optimizer/RNG state;
+there is no exact continuation from interrupted epoch8. Start a separate,
+explicitly labelled recovery run with `--recover-from <parent>/best_adaptation.pt`.
+Verify the parent checkpoint/config binding, pinned bases, model/data code,
+canonical source identities and unchanged scientific/execution recipe.
+
+Load all saved trainable LoRA/CLAP/TF2 weights on the same pinned frozen bases.
+Use a fresh AdamW optimizer and restarted seed1234 RNG/sampler; preserve all
+LRs, weight decay, BF16/FP32, physical22/accum6/effective132, workers8train/4dev,
+10GiB allocator guard and the original source input/sampling policy. Logical
+training restarts at epoch5, with maximum logical epoch30. Retain inherited
+epoch4 as the initial best; strict improvement/ties earlier remains unchanged.
+Restart patience at0 because training rewinds to epoch4; old epochs5–7 and
+partial8 remain preserved historical work, not restored optimizer steps.
+Recovery may follow a different trajectory and must be reported as such.
+
+Keep the original directory untouched. Save latest completed-epoch weights and
+optimizer state separately from best; this does not implement exact RNG/worker
+resume or mid-epoch recovery. If the inherited best remains selected, reproduce
+its full source scores before the normal fresh-base full-score parity/export/
+calibration gate. No completion claim before that gate. Preserve failures with
+no automatic retry. This authorization does not restart SSL, alter its recipe,
+open targets, schedule another fit or authorize commit/push.
+
+## SSL F2 native evaluation and F4 training (2026-11-03)
+
+The owner explicitly authorizes completed SSL-gating20s F2 seed1234 native P1
+evaluation on SSH2, plus fresh F4 seed1234 training. This supersedes the earlier
+SSL F2 evaluation and F4 training holds only. F2's selected checkpoint must
+reproduce all ASV2019, ASV5 and SpeechFake source-development EERs/calibration
+before CFAD unseen test is opened. Preserve full-recording batch1/FP32 scoring,
+spoof-score direction, frozen source thresholds, raw and separately labelled
+transductive branches and1000 conditional bootstrap resamples (seed2026).
+
+F4 trains on ASV5, CFAD and SpeechFake train/dev only. Retain the approved
+version2 recipe: seed1234, batch5/accum1/FP32, random training-only20s crops
+after16kHz resampling, full-recording batch-one development, domain-balanced
+replacement sampling with natural classes, weightedCE+CKA, Adam3e-6/wd1e-4,
+constantLR, maximum10/patience3 and strict equal-domain macro source-dev EER
+selection with ties earlier. Use fresh pinned official XLS-R300M and a fresh
+backend, workers16train/4dev, prefetch2, CPUthreads2 and19GiB allocator guard.
+No resume, fold/pilot initialization, overwrite or automatic retry.
+
+Preserve the active full-F1 TF2 run and all guarded source bytes. Check resource
+headroom using source inputs only; sequence evaluation then training if safe
+concurrent execution cannot be established. Evaluation memory limits must not
+change full inputs, batch1 or FP32. Actual launch order, limits and evidence
+belong in the local handoff and launcher records. No F4 target/external
+evaluation, automatic other folds/seeds, commit or push is authorized.
+
+Later same-day owner clarification: launch F4 training directly; defer F2
+evaluation rather than waiting for it. No F2 evaluation is queued automatically
+after F4. Preserve TF2 and the unchanged F4 recipe above.
+
 ## Full F1 TF2 adaptation owner correction (2026-11-01)
 
 The owner stopped the two-source pilot and explicitly requested/reconfirmed

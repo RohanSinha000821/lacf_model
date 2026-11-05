@@ -76,6 +76,56 @@ def restore_adaptation(model, state):
         model.load_state_dict(state, strict=True)
 
 
+def load_weights_recovery(path, config):
+    """Recover selected weights only; never pretend to restore missing optimizer/RNG state."""
+    config = json.loads(json.dumps(config))
+    path = path.resolve()
+    if path.name != "best_adaptation.pt":
+        raise ValueError("Weights recovery requires the source-selected best_adaptation.pt")
+    parent_path = path.parent / "config.json"
+    parent = json.loads(parent_path.read_text())
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if state["run_config_sha256"] != checkpoint_digest(parent_path):
+        raise ValueError("Recovery checkpoint is not bound to its parent config")
+    fields = ("mode", "condition", "fold", "full_f1", "held_source", "seed", "model", "pretrained",
+              "training_sources", "development_sources", "selection", "source_partitions", "cache_config_sha256",
+              "physical_batch", "effective_batch", "accumulation_steps", "workers", "development_workers",
+              "prefetch_factor", "precision", "optimizer", "scheduler", "maximum_epochs", "patience", "target_access")
+    if any(parent.get(k) != config[k] for k in fields):
+        raise ValueError("Recovery recipe, source identity or seed differs from the new run")
+    if not config["full_f1"] or config["mode"] != "train" or config["condition"] == "frozen" or config["target_access"]:
+        raise ValueError("Weights recovery is restricted to source-only full-F1 adaptation")
+    # Only this entrypoint changes for recovery; all model/data/base implementations must agree.
+    entrypoint = str(Path(__file__).resolve().relative_to(ROOT))
+    guards = {**parent["provenance"]["code_sha256"], **parent["provenance"]["preserved_job_guards"]}
+    for name, digest in guards.items():
+        if name != entrypoint and checkpoint_digest(ROOT / name) != digest:
+            raise ValueError(f"Recovery parent implementation changed: {name}")
+    epoch = state["epoch"]
+    metrics = state["source_dev"]
+    if (type(epoch) is not int or not 1 <= epoch < config["maximum_epochs"]
+            or set(metrics["by_domain"]) != set(config["development_sources"])):
+        raise ValueError("Invalid recovery epoch or development domains")
+    for key in ("eer", "auroc"):
+        values = [m[key] for m in metrics["by_domain"].values()]
+        if (any(not math.isfinite(v) or not 0 <= v <= 1 for v in values)
+                or not math.isclose(statistics.mean(values), metrics[f"macro_{key}"], abs_tol=1e-14, rel_tol=0)):
+            raise ValueError("Invalid recovery source metrics")
+    return state, {"kind": "selected_weights_only_after_host_shutdown", "checkpoint": str(path),
+                   "checkpoint_sha256": checkpoint_digest(path), "parent_config_sha256": checkpoint_digest(parent_path),
+                   "parent_epoch": epoch, "first_epoch": epoch+1, "optimizer_restored": False,
+                   "rng_or_sampler_restored": False, "patience_restarted_at": 0,
+                   "exact_training_resume": False, "maximum_logical_epoch": config["maximum_epochs"]}
+
+
+def save_adaptation_checkpoint(path, payload):
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    if temporary.exists():
+        raise FileExistsError("Interrupted checkpoint preserved")
+    torch.save(payload, temporary)
+    temporary.replace(path)
+
+
 def train_audio_epoch(model, loader, optimizer, device, *, effective_batch=EFFECTIVE_BATCH, logger=None, phase="train", max_batches=None):
     """Sample-weighted accumulation, including a short last microbatch/group."""
     physical = loader.batch_size
@@ -284,11 +334,13 @@ def development_metrics(scores, labels):
             "macro_auroc": statistics.mean(m["auroc"] for m in by_domain.values())}
 
 
-def fit(model, collator, datasets, args, provenance, logger):
+def fit(model, collator, datasets, args, provenance, logger, *, recovery=None):
     fitting, train, development = datasets
     dev = development if args.full_f1 else {args.held_domain: development}
     device = next(model.parameters()).device
     frozen = args.condition == "frozen"
+    if recovery is not None:
+        restore_adaptation(model, recovery["trainable_state"])
     if frozen:
         marker = json.loads((CACHE / "complete.json").read_text())
         bank = {}
@@ -315,9 +367,18 @@ def fit(model, collator, datasets, args, provenance, logger):
             else:
                 values[domain], labels[domain] = score_audio(current, loader, device, logger=logger)
         return values, labels, development_metrics(values, labels)
-    best, stale = float("inf"), 0
+    best, stale, first_epoch, best_epoch, best_scores = float("inf"), 0, 1, 0, None
+    config_digest = checkpoint_digest(args.output / "config.json")
+    if recovery is not None:
+        best, best_epoch = recovery["source_dev"]["macro_eer"], recovery["epoch"]
+        first_epoch = best_epoch + 1
+        save_adaptation_checkpoint(args.output / "best_adaptation.pt",
+                                   {**recovery, "run_config_sha256": config_digest})
+        logger.info("RECOVERY | epoch%d selected weights; fresh optimizer/RNG/sampler; next epoch%d; "
+                    "preserving parent best EER%.4f%%, max logical epoch30, patience reset0/5; not exact resume",
+                    best_epoch, first_epoch, best*100)
     with (args.output / "history.jsonl").open("x") as history:
-        for epoch in range(1, 31):
+        for epoch in range(first_epoch, 31):
             check_guards(provenance)
             if frozen:
                 loss, updates = train_features(model, train_loader, optimizer, device, accumulation_steps=1, logger=logger, phase=f"epoch{epoch}")
@@ -328,14 +389,18 @@ def fit(model, collator, datasets, args, provenance, logger):
             if metrics["macro_eer"] < best:
                 best, best_epoch, stale = metrics["macro_eer"], epoch, 0
                 best_scores = {d: value.clone() for d, value in scores.items()}
-                temporary = args.output / "best_adaptation.pt.tmp"
-                if temporary.exists():
-                    raise FileExistsError("Interrupted checkpoint preserved")
-                torch.save({"trainable_state": adaptation_state(model), "epoch": epoch, "source_dev": metrics,
-                            "run_config_sha256": checkpoint_digest(args.output / "config.json")}, temporary)
-                temporary.replace(args.output / "best_adaptation.pt")
+                save_adaptation_checkpoint(args.output / "best_adaptation.pt",
+                                           {"trainable_state": adaptation_state(model), "epoch": epoch,
+                                            "source_dev": metrics, "run_config_sha256": config_digest})
             else:
                 stale += 1
+            # Retain the latest completed epoch too; best-only saving lost epochs5-7 on shutdown.
+            # This does not implement exact resume (worker/RNG state is not restored).
+            save_adaptation_checkpoint(args.output / "last_adaptation.pt",
+                                       {"trainable_state": adaptation_state(model), "epoch": epoch,
+                                        "source_dev": metrics, "run_config_sha256": config_digest,
+                                        "optimizer_state_dict": optimizer.state_dict(),
+                                        "best_epoch": best_epoch, "patience": stale})
             history.write(json.dumps({"epoch": epoch, "training": loss, "source_dev": metrics, "best_epoch": best_epoch, "patience": stale})+"\n")
             history.flush()
             logger.info("EPOCH %d | macro source EER%.4f%% AUROC%.6f | by_domain=%s | best%d stale%d/5",
@@ -345,6 +410,12 @@ def fit(model, collator, datasets, args, provenance, logger):
     state = torch.load(args.output / "best_adaptation.pt", map_location="cpu", weights_only=True)
     if state["run_config_sha256"] != checkpoint_digest(args.output / "config.json"):
         raise ValueError("Selected checkpoint recipe binding changed")
+    if best_scores is None:
+        # The inherited best may win every tie; verify its full scores before fresh reconstruction.
+        restore_adaptation(model, state["trainable_state"])
+        best_scores, _, inherited_metrics = score(model)
+        if inherited_metrics != state["source_dev"]:
+            raise ValueError("Inherited checkpoint source metrics differ on full reload")
     model.cpu()
     del model, optimizer
     gc.collect()
@@ -396,6 +467,8 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--recover-from", type=Path,
+                        help="Explicit selected-weights recovery into a NEW full-F1 run; fresh optimizer, not exact resume")
     args = parser.parse_args()
     if args.full_f1 and (args.held_domain is not None or args.mode != "train"):
         parser.error("Full F1 is train mode with all three sources; do not specify a held source")
@@ -407,6 +480,8 @@ def main():
         parser.error("The canonical ASV5-train memory example must be a fitting source; use another inner hold for probes")
     if args.condition == "frozen" and (args.mode == "probe" or args.physical_batch != 132):
         parser.error("Frozen references use cached features/batch132 in train mode; no encoder probe needed")
+    if args.recover_from is not None and (not args.full_f1 or args.mode != "train" or args.condition == "frozen"):
+        parser.error("Weights recovery requires full-F1 adaptation training")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(including_emulation=False):
         raise RuntimeError("Native CUDA BF16 is required; no precision fallback")
     torch.cuda.set_per_process_memory_fraction(10*1024**3/torch.cuda.get_device_properties(0).total_memory)
@@ -438,7 +513,7 @@ def main():
     data = full_f1_sources(args.data_root) if args.full_f1 else inner_sources(args.data_root, args.held_domain)
     development = data[2] if args.full_f1 else {args.held_domain: data[2]}
     membership = verify_source_membership([*data[0], *development.values()], marker)
-    save_json(args.output / "config.json", {"mode": args.mode, "condition": args.condition, "held_source": args.held_domain,
+    run_config = {"mode": args.mode, "condition": args.condition, "held_source": args.held_domain,
               "fold": "f1", "full_f1": args.full_f1,
               "scope": "full F1 source train/dev" if args.full_f1 else "inner-source train/dev",
               "training_sources": [d.identifiers[0].split("/", 1)[0] for d in data[0]],
@@ -457,7 +532,12 @@ def main():
               "initialization": "fresh TF2 on cached frozen features" if args.condition == "frozen" else
                                 "fresh official base plus fresh TF2 and zero-delta LoRA; no target-selected checkpoint",
               "maximum_epochs": 30, "patience": 5, "scheduler": "constant", "resume": False, "target_access": False,
-              "gpu_allocator_budget_gib": 10, "automatic_long_queue": False})
+              "gpu_allocator_budget_gib": 10, "automatic_long_queue": False}
+    recovery = None
+    if args.recover_from is not None:
+        recovery, run_config["recovery"] = load_weights_recovery(args.recover_from, run_config)
+        run_config["initialization"] = "parent source-selected adaptation weights on pinned bases; fresh optimizer/RNG/sampler"
+    save_json(args.output / "config.json", run_config)
     logger.info("DATA | train sources=%s records=%d | dev=%s | full_f1=%s",
                 [d.identifiers[0].split("/", 1)[0] for d in data[0]], len(data[1]),
                 {d: len(v) for d, v in development.items()}, args.full_f1)
@@ -465,7 +545,7 @@ def main():
     if args.mode == "probe":
         probe(model, collator, data, args, logger)
     else:
-        fit(model, collator, data, args, provenance, logger)
+        fit(model, collator, data, args, provenance, logger, recovery=recovery)
     check_guards(provenance)
 
 

@@ -635,6 +635,21 @@ configuration; CKA detachment and block/time layout are repaired explicitly.
 | `scripts/ssl_gating/evaluate.py` | Completed checkpoint verification → strict reload from saved frontend config → source CSV/calibration and macro reproduction → native target CSV → shared metrics and conditional CIs. |
 | `tests/test_ssl_gating.py` | Synthetic CPU gradient, layout, full-input, sampler, source-isolation, reload and manifest/metric safeguards. |
 
+Later5November partial-FT variant, kept separate to preserve active TF2 source
+guards: `sota/ssl_gating_partial.py` subclasses the unchanged baseline, freezes
+frontend/blocks0–19 and disables forced input gradients. Blocks20–23 and the
+complete backend train; original encoder stochastic training behavior remains.
+An FP32 pooling subclass preserves original initialization/state keys under
+BF16. `scripts/ssl_gating/train_partial.py` reuses canonical readers/sampling,
+buffers batch-one source score transfers, selects strict source macro EER,
+saves periodic recovery snapshots/epoch best/last, and fresh-reloads the best
+for complete source score parity/calibration before completion. It never opens
+targets. `tests/test_ssl_gating_partial.py` checks freeze/gradient scope,
+unchanged FP32 initialization/math, BF16-sensitive calculations and snapshots.
+Its `ssl_gating_20s_top4_bf16` family is a disclosed separate adaptation;
+the original FP32 exporter is not its evaluator. See README/protocol for the
+measured batch24/8train/4dev/BF16 recipe; no other fold is queued by the code.
+
 New version2 artifacts follow `outputs/ssl_gating_20s/<fold>/<seed>/`, compatible with the common
 score-only evaluator and summary reader. The three-seed plan is unchanged.
 The trainer refuses existing artifacts; its run lock prevents simultaneous
