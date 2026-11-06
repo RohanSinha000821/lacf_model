@@ -8,6 +8,13 @@ the earlier same-day SSL-suggestions-only hold. Keep it separate from full-FT
 declared variant for a matched summary. Only F4 seed1234 is launched now;
 other folds/seeds and all target evaluation remain separately authorized work.
 
+Later owner request, 5November: launch fresh F3 seed1234 on SSH1 with this
+identical partial/BF16 recipe. Train on ASV2019 LA, CFAD and SpeechFake train;
+their three full development sets select and calibrate source-only. Preserve
+the interrupted full-FT F3 separately; ASV5 eval remains unopened. This adds
+only F3 training authorization, without resume, automatic retries, other fits
+or target evaluation. F4 on SSH2 continues independently.
+
 Freeze all XLS-R frontend weights and Transformer blocks0–19; train blocks20–23
 and the complete original gating backend (53,029,762 trainable of318,083,586
 total parameters). Preserve all25 hidden representations and original training

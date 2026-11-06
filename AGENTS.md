@@ -148,6 +148,12 @@ holds only; preserve active source bytes/jobs and exclude local records,
 outputs, datasets, pretrained weights and reference originals. Do not infer
 additional fold launches or evaluation permission from synchronization.
 
+Later owner launch request, 5November: start fresh F3 seed1234 on SSH1 in
+`ssl_gating_20s_top4_bf16`, using the same approved batch24/BF16/last-four-block
+recipe and source-only gates as F4. Preserve interrupted full-FT F3 and active
+SSH2 work. This authorizes this one fresh F3 run only; no training resume,
+automatic retries, other folds/seeds, target evaluation or publication.
+
 
 ## Experiment organization (owner decision, 6 November 2026)
 
