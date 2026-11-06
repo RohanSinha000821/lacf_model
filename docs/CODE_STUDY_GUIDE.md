@@ -1,10 +1,12 @@
 # Python code study guide
 
+Experiment navigation and temporary live-job compatibility paths: [experiment layout](EXPERIMENTS_LAYOUT.md).
+
 ## TF2 token-fusion and isolated adaptation (2026-10-31)
 
 `token_fusion/model.py` implements TF0–TF3 frozen-feature controls. TF2 uses
 thirteen WavLM layer tokens and one CLAP audio token plus CLS, with two fusion
-Transformer blocks and detection BCE. `scripts/token_fusion/train.py` and
+Transformer blocks and detection BCE. `scripts/experiments/token_fusion/train.py` and
 `evaluate.py` are separate from primary LACF and SOTA entry points.
 
 `token_fusion/adaptation.py` adds low-rank parametrizations to effective Q/V
@@ -15,10 +17,10 @@ existing TF2 head and exposes exact enabled-parameter counts/optimizer groups.
 `adaptation_data.py` reads only fitting-source train and inner-held source dev,
 reuses fixed crop definitions, canonical readers and domain/class weights.
 
-`scripts/token_fusion/train_adaptation.py` separates bounded source probes from
+`scripts/experiments/token_fusion/train_adaptation.py` separates bounded source probes from
 future fitting. It preserves effective batch132 with correctly weighted tail
 accumulation, pinned local-only bases, strict source EER selection and sparse
-checkpoint fresh-base reload. Tests in `tests/test_token_fusion_adaptation.py`
+checkpoint fresh-base reload. Tests in `tests/experiments/token_fusion/test_token_fusion_adaptation.py`
 exercise actual small WavLM functional attention, gradient/freeze scope, crop
 parity, source isolation, sparse states and incomplete accumulation groups.
 Long fitting remains held pending measured runtime and a later launch request.
@@ -34,12 +36,12 @@ the complete synthetic54-fit queue.
 ## Separate C0–C4 package (2026-10-22)
 
 `layer_fusion/model.py` changes only cached WavLM layer fusion, then wraps the
-existing `lacf/ablations.py` full35-D backend with both auxiliary losses disabled.
+existing `experiments/lacf_diagnostics/ablations.py` full35-D backend with both auxiliary losses disabled.
 `layer_fusion/diagnostics.py` reports source routing distributions after selection.
-`scripts/layer_fusion/train.py` reuses `lacf/probes.py` cache/sampler/scoring and
-`scripts/lacf/train_probes.py` fitting/reload/export with explicit `layer_fusion`
+`scripts/experiments/layer_fusion/train.py` reuses `experiments/lacf_diagnostics/probes.py` cache/sampler/scoring and
+`scripts/experiments/lacf_diagnostics/train_probes.py` fitting/reload/export with explicit `layer_fusion`
 identity. Original numeric Step3/Step4 behavior is preserved. The separate
-`tests/test_layer_fusion.py` checks precision, common initialization, counts,
+`tests/experiments/layer_fusion/test_layer_fusion.py` checks precision, common initialization, counts,
 source isolation and fresh reload. See [the experiment guide](LAYER_FUSION_EXPERIMENTS.md)
 for C0–C4 definitions, fixed recipe, output layout and future command. This is
 frozen-cache implementation only; no fine-tuning or target evaluator is added.
@@ -94,7 +96,7 @@ There is also a generic route: `evaluate_scores.py` reads already-exported, vali
 | 7 | [evaluate_scores.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/evaluate_scores.py:20) | Model-independent evaluation from score files. |
 | 8 | [summarize_results.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/summarize_results.py:34) | Combining complete results without pooling target datasets. |
 | 9 | [prepare_cache.py](/mnt/drive/rohan/audio-deepfake-detection/scripts/prepare_cache.py:180) | How source audio is copied and checked before experiments. |
-| 10 | [tests](/mnt/drive/rohan/audio-deepfake-detection/tests/test_metrics.py), [queue script](/mnt/drive/rohan/audio-deepfake-detection/scripts/wavlm/train_folds.sh) | Examples of expected behavior and operational safeguards. |
+| 10 | [tests](/mnt/drive/rohan/audio-deepfake-detection/tests/shared/test_metrics.py), [queue script](/mnt/drive/rohan/audio-deepfake-detection/scripts/wavlm/train_folds.sh) | Examples of expected behavior and operational safeguards. |
 
 `src/audio_deepfake_detection/` contains reusable components. `scripts/` contains executable entry points that assemble those components. A function named `main()` orchestrates a job; functions starting with `_` are internal helpers. The `if __name__ == "__main__"` block starts a script when executed directly, rather than when imported.
 
@@ -333,7 +335,7 @@ bounded copying and disk-space guards, and writes `all_complete.json` only
 when all requested partitions pass. This CPU-only cache job performs no model
 inference or audio transformation. Require the complete markers before future
 authorized evaluations use the target cache; retain valid existing scores.
-Synthetic preservation/membership checks live in `tests/test_test_cache.py`.
+Synthetic preservation/membership checks live in `tests/shared/test_test_cache.py`.
 
 
 ## 11. Output files: what creates and consumes them?
@@ -357,13 +359,21 @@ A saved best checkpoint alone does not mean training is complete. A completion m
 
 ## 12. Remaining files and tests
 
+Tests are grouped by component under `tests/shared/`, `tests/sota/wavlm/`,
+`tests/sota/aasist/`, `tests/sota/ssl_gating/`, `tests/lacf/`,
+`tests/experiments/lacf_diagnostics/`, `tests/experiments/layer_fusion/` and
+`tests/experiments/token_fusion/`. Shared evaluation tests can
+cover multiple models. Pytest discovers these folders recursively; run all tests
+with `python -m pytest tests` or select one component folder. Historical reports
+and local run records retain their original test paths.
+
 - [train_folds.sh](/mnt/drive/rohan/audio-deepfake-detection/scripts/wavlm/train_folds.sh) is Bash, not Python. It activates the environment, queues F2→F3→F4 at batch 96, logs output and uses a family-wide lock to prevent a second queue. Failure or a missing completion marker stops subsequent folds. It does not launch target testing or resume interrupted runs.
 - [activate.sh](/mnt/drive/rohan/audio-deepfake-detection/activate.sh) configures the shared environment and project paths. [pyproject.toml](/mnt/drive/rohan/audio-deepfake-detection/pyproject.toml) declares package/dependency settings; `uv.lock` records dependency resolution.
 - [package __init__.py](/mnt/drive/rohan/audio-deepfake-detection/src/audio_deepfake_detection/__init__.py) is a package initializer. Training, scoring and cache commands use the documented entry points under `scripts/`; there is no package-level greeting command. `sota/__init__.py` is an empty package initializer.
-- [test_metrics.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_metrics.py): small numerical examples for ranking, thresholds, normalization, bootstrap and score validation.
-- [test_evaluation_pipeline.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_evaluation_pipeline.py): completed-run gates, canonical membership, manifests/checksums, source-before-target behavior and summary checks.
-- [test_data_cache.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_data_cache.py): SpeechFake duplicates/overlaps/path handling and cache argument checks.
-- [test_training_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_training_queue.py): batch/family settings, queue order, failure handling and concurrency locking using temporary/fake runs.
+- [test_metrics.py](/mnt/drive/rohan/audio-deepfake-detection/tests/shared/test_metrics.py): small numerical examples for ranking, thresholds, normalization, bootstrap and score validation.
+- [test_evaluation_pipeline.py](/mnt/drive/rohan/audio-deepfake-detection/tests/shared/test_evaluation_pipeline.py): completed-run gates, canonical membership, manifests/checksums, source-before-target behavior and summary checks.
+- [test_data_cache.py](/mnt/drive/rohan/audio-deepfake-detection/tests/shared/test_data_cache.py): SpeechFake duplicates/overlaps/path handling and cache argument checks.
+- [test_training_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/sota/wavlm/test_training_queue.py): batch/family settings, queue order, failure handling and concurrency locking using temporary/fake runs.
 - [README.md](/mnt/drive/rohan/audio-deepfake-detection/README.md) is the operational starting point; [EXPERIMENT_PROTOCOL.md](/mnt/drive/rohan/audio-deepfake-detection/docs/EXPERIMENT_PROTOCOL.md) records research rules; [SOTA_PAPER_NOTES.md](/mnt/drive/rohan/audio-deepfake-detection/docs/SOTA_PAPER_NOTES.md) records paper interpretations. Documentation describes intended policy; executable code determines what is actually implemented.
 
 For a first study session, trace just one batch: `train.main()` → `read_dataset()` → `WavLMDataset.__getitem__()` → `collate_wavlm_batch()` → `WavLMWA.forward()` → cross-entropy → `backward()` → optimizer step. Then trace one epoch's source-dev evaluation and best-checkpoint decision. Leave target evaluation and bootstrap internals until that path is clear.
@@ -407,7 +417,7 @@ scripts/aasist/evaluate.py
 
 AASIST is randomly initialized, not an SSL encoder. Its train/eval duration policy differs from WavLM's full-utterance evaluation. Its class weights are `[0.9,0.1]`; the encoder/head use one Adam group at `1e-4`, weight decay `1e-4`, with cosine minimum `5e-6`. No BF16, RawBoost, frequency masking or SWA is silently added. See README and the protocol for disclosed deviations from the released training workflow.
 
-The AASIST queue covers all four folds for one seed and refuses to start while the existing batch-96 WavLM queue is active. It is not an automatic handoff. [test_aasist.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_aasist.py) checks audio handling, exact upstream logits after class reordering, CPU forward/backward/reload, checkpoint writing, target gates and metric export. [test_aasist_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_aasist_queue.py) checks queue order and locking without real training.
+The AASIST queue covers all four folds for one seed and refuses to start while the existing batch-96 WavLM queue is active. It is not an automatic handoff. [test_aasist.py](/mnt/drive/rohan/audio-deepfake-detection/tests/sota/aasist/test_aasist.py) checks audio handling, exact upstream logits after class reordering, CPU forward/backward/reload, checkpoint writing, target gates and metric export. [test_aasist_queue.py](/mnt/drive/rohan/audio-deepfake-detection/tests/sota/aasist/test_aasist_queue.py) checks queue order and locking without real training.
 
 ## 14. P2–P4 evaluation flow (2026-10-05)
 
@@ -460,7 +470,7 @@ jobs train (pinned-memory loaders can otherwise initialize CUDA even in a CPU te
 CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q -p no:cacheprovider
 ```
 
-Tests in [test_extended_evaluation.py](/mnt/drive/rohan/audio-deepfake-detection/tests/test_extended_evaluation.py)
+Tests in [test_extended_evaluation.py](/mnt/drive/rohan/audio-deepfake-detection/tests/shared/test_extended_evaluation.py)
 cover schemas, safe paths, membership, source-first gates, fixed normalization,
 single-class metrics, genuine-reference deduplication, paired IDs, mock CPU
 export, immutable selection records, supplementary provenance and score-tamper
@@ -511,13 +521,13 @@ scripts/lacf/train.py
 | `lacf/precision.py` | Explicit FP32 LayerNorm/GroupNorm/BatchNorm boundaries preserve encoder state names and values. A CLAP projection output hook casts before its internal L2 normalization. |
 | `lacf/training.py`: `train_epoch()` | BF16 autocast with FP32 objective, actual-microbatch-count accumulation and finite-loss/gradient checks; loop consumes the configured objective without ablation-specific branching. |
 | `lacf/cache.py`: `frozen_development()` | Source-only centered crops; persistent FP32 WavLM/CLAP features bound to records, duration, processors, encoder/code revisions and environment. Rejects trainable encoders and corrupt/incomplete caches. No random train crops or backend outputs cached. |
-| `lacf/diagnostic_cache.py` and `scripts/lacf/cache_diagnostics.py` | Separate Step 2 diagnostic cache: canonical source train/dev, centre plus two fixed training views, native input lengths, all 13 pooled WavLM representations and raw CLAP projection. Identical intervals share rows. Full WavLM forward batches only equal lengths; CLAP fixed-size mel inputs batch independently. Source benchmarks record speed/memory/BF16 rounding. Explicit feature continuation verifies preserved shards/identities without re-encoding them, records its execution segment, and stops on corruption. Does not resume model training, fit probes or access targets. |
-| `lacf/probes.py` and `scripts/lacf/train_probes.py` | Step 3 source-only logistic/MLP probes on last WavLM, learned 13-layer mix, normalized CLAP and concatenation. Cache payloads/canonical identities load once into CPU memory; vectorized balanced batches select logical crop aliases without tripling epochs. Reuses the existing optimizer/training loop and shared metrics/CSV/completion utilities. Fresh fits, strict inner source-EER selection, selected-checkpoint reload/export verification, timing and three-seed macro summaries; no encoders, target reads, resume or automatic Step 4. |
-| `lacf/ablations.py` and `scripts/lacf/train_ablations.py` | Step4's explicit A4–A9/loss configurations, using the same adapter/head/loss components and source-only fit/reload/export loop. Compact last-layer cache loading retains original payload/canonical checks. Preserved foundation prototype buffers must match; old learned parameters never initialize fits. Seven unique variants/189fits, with A9_no_bf labelled as the A8 alias; no encoder pass, redesign or target access. |
+| `experiments/lacf_diagnostics/diagnostic_cache.py` and `scripts/experiments/lacf_diagnostics/cache_diagnostics.py` | Separate Step 2 diagnostic cache: canonical source train/dev, centre plus two fixed training views, native input lengths, all 13 pooled WavLM representations and raw CLAP projection. Identical intervals share rows. Full WavLM forward batches only equal lengths; CLAP fixed-size mel inputs batch independently. Source benchmarks record speed/memory/BF16 rounding. Explicit feature continuation verifies preserved shards/identities without re-encoding them, records its execution segment, and stops on corruption. Does not resume model training, fit probes or access targets. |
+| `experiments/lacf_diagnostics/probes.py` and `scripts/experiments/lacf_diagnostics/train_probes.py` | Step 3 source-only logistic/MLP probes on last WavLM, learned 13-layer mix, normalized CLAP and concatenation. Cache payloads/canonical identities load once into CPU memory; vectorized balanced batches select logical crop aliases without tripling epochs. Reuses the existing optimizer/training loop and shared metrics/CSV/completion utilities. Fresh fits, strict inner source-EER selection, selected-checkpoint reload/export verification, timing and three-seed macro summaries; no encoders, target reads, resume or automatic Step 4. |
+| `experiments/lacf_diagnostics/ablations.py` and `scripts/experiments/lacf_diagnostics/train_ablations.py` | Step4's explicit A4–A9/loss configurations, using the same adapter/head/loss components and source-only fit/reload/export loop. Compact last-layer cache loading retains original payload/canonical checks. Preserved foundation prototype buffers must match; old learned parameters never initialize fits. Seven unique variants/189fits, with A9_no_bf labelled as the A8 alias; no encoder pass, redesign or target access. |
 | `source_eer()` / `make_optimizer()` | Shared EER on source scores / AdamW on enabled trainable parameters only. |
 | `scripts/lacf/train.py` | Guards existing outputs/cache acknowledgment/CUDA; the current verified-cache acknowledgment records its evidence source from the passed validation record; the expired owner-waiver flag is removed. Records components, processor policy, provenance, seed plan and recipe. Strict macro source-EER improvement, patience five, selected-checkpoint reload before completion. |
 | `scripts/lacf/train_folds.sh` / `verify_fold_completion()` | Fresh F1→F2→F3→F4 at seed 1234; shared completion/hash checks plus LACF recipe and source-reload validation. Any failure stops the queue. No skip/resume. |
-| `tests/test_lacf.py` | Synthetic audio, fake encoders and a random tiny WavLM configuration. Tests equations, actual feature-mask conversion, freezing, configuration, accumulation, target isolation and preservation; never loads downloaded weights or real data. |
+| `tests/lacf/test_lacf.py` | Synthetic audio, fake encoders and a random tiny WavLM configuration. Tests equations, actual feature-mask conversion, freezing, configuration, accumulation, target isolation and preservation; never loads downloaded weights or real data. |
 
 The owner-approved initial study uses seed 1234 only, BF16 mixed precision and
 661,479 trainable adapter/head parameters. Normalization, masked pooling,
@@ -633,7 +643,7 @@ configuration; CKA detachment and block/time layout are repaired explicitly.
 | `linear_cka`, `cka_loss` | Differentiable biased linear CKA across batch examples, six pairs of pooled block means, finite zero-variance behavior. |
 | `scripts/ssl_gating/train.py` | FP32 weighted CE + CKA, Adam constant LR, source-domain macro EER, strict improvement, best/last, provenance/counts and completion hash. Never reads the target. |
 | `scripts/ssl_gating/evaluate.py` | Completed checkpoint verification → strict reload from saved frontend config → source CSV/calibration and macro reproduction → native target CSV → shared metrics and conditional CIs. |
-| `tests/test_ssl_gating.py` | Synthetic CPU gradient, layout, full-input, sampler, source-isolation, reload and manifest/metric safeguards. |
+| `tests/sota/ssl_gating/test_ssl_gating.py` | Synthetic CPU gradient, layout, full-input, sampler, source-isolation, reload and manifest/metric safeguards. |
 
 Later5November partial-FT variant, kept separate to preserve active TF2 source
 guards: `sota/ssl_gating_partial.py` subclasses the unchanged baseline, freezes
@@ -644,7 +654,7 @@ BF16. `scripts/ssl_gating/train_partial.py` reuses canonical readers/sampling,
 buffers batch-one source score transfers, selects strict source macro EER,
 saves periodic recovery snapshots/epoch best/last, and fresh-reloads the best
 for complete source score parity/calibration before completion. It never opens
-targets. `tests/test_ssl_gating_partial.py` checks freeze/gradient scope,
+targets. `tests/sota/ssl_gating/test_ssl_gating_partial.py` checks freeze/gradient scope,
 unchanged FP32 initialization/math, BF16-sensitive calculations and snapshots.
 Its `ssl_gating_20s_top4_bf16` family is a disclosed separate adaptation;
 the original FP32 exporter is not its evaluator. See README/protocol for the

@@ -1,5 +1,7 @@
 # Project documentation
 
+Experiment navigation and temporary live-job compatibility paths: [experiment layout](EXPERIMENTS_LAYOUT.md).
+
 ## Separate layer-fusion comparison
 
 [LAYER_FUSION_EXPERIMENTS.md](LAYER_FUSION_EXPERIMENTS.md) defines the isolated

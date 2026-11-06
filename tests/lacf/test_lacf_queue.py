@@ -14,7 +14,7 @@ import pytest
 def queue_project(tmp_path):
     script = tmp_path / "scripts/lacf/train_folds.sh"
     script.parent.mkdir(parents=True)
-    script.write_text((Path(__file__).resolve().parents[1] / "scripts/lacf/train_folds.sh").read_text())
+    script.write_text((Path(__file__).resolve().parents[2] / "scripts/lacf/train_folds.sh").read_text())
     binaries = tmp_path / "bin"
     binaries.mkdir()
     (tmp_path / "activate.sh").write_text(

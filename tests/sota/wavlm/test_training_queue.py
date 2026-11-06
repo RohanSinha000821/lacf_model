@@ -66,7 +66,7 @@ def fake_queue(tmp_path):
     # A temporary project and Python stub verify shell scheduling without training.
     queue = tmp_path / "scripts/wavlm/train_folds.sh"
     queue.parent.mkdir(parents=True)
-    actual = Path(__file__).resolve().parents[1] / "scripts/wavlm/train_folds.sh"
+    actual = Path(__file__).resolve().parents[3] / "scripts/wavlm/train_folds.sh"
     queue.write_text(actual.read_text())
     binary_dir = tmp_path / "bin"
     binary_dir.mkdir()

@@ -13,7 +13,7 @@ import pytest
 def fake_evaluation_queue(tmp_path):
     script = tmp_path / "scripts/wavlm/evaluate_folds.sh"
     script.parent.mkdir(parents=True)
-    shutil.copyfile(Path(__file__).parents[1] / "scripts/wavlm/evaluate_folds.sh", script)
+    shutil.copyfile(Path(__file__).parents[3] / "scripts/wavlm/evaluate_folds.sh", script)
     binaries = tmp_path / "bin"
     binaries.mkdir()
     (tmp_path / "activate.sh").write_text(f'export PATH="{binaries}:$PATH"\n')

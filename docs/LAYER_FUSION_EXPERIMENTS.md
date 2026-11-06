@@ -77,19 +77,19 @@ Partial fine-tuning is a later experiment and is not implemented here.
 
 ## Files and reuse
 
-- `src/audio_deepfake_detection/layer_fusion/model.py`: fusion candidates wrapping
+- `src/audio_deepfake_detection/experiments/layer_fusion/model.py`: fusion candidates wrapping
   the existing full LACF backend; no pretrained encoders are constructed.
-- `src/audio_deepfake_detection/layer_fusion/diagnostics.py`: descriptive routing
+- `src/audio_deepfake_detection/experiments/layer_fusion/diagnostics.py`: descriptive routing
   summaries on source development only.
-- `scripts/layer_fusion/train.py`: bounded source GPU preflight followed by the
+- `scripts/experiments/layer_fusion/train.py`: bounded source GPU preflight followed by the
   fresh sequential comparison, if separately authorized to run.
-- `tests/test_layer_fusion.py`: synthetic CPU architecture, precision, initialization,
+- `tests/experiments/layer_fusion/test_layer_fusion.py`: synthetic CPU architecture, precision, initialization,
   sampling, gradients, reload, provenance and target-isolation checks.
 
 The runner reuses canonical feature-cache validation and vectorized sampling
-from `lacf/probes.py`, the existing optimizer/epoch loop and shared metrics.
+from `experiments/lacf_diagnostics/probes.py`, the existing optimizer/epoch loop and shared metrics.
 The only existing training-helper extension is the explicit `layer_fusion`
-experiment identity in `scripts/lacf/train_probes.py`; numeric Step3/Step4
+experiment identity in `scripts/experiments/lacf_diagnostics/train_probes.py`; numeric Step3/Step4
 identities and behavior remain unchanged. No SOTA or primary LACF model code
 is modified. No extra dependencies or environment manifest are needed.
 
@@ -224,7 +224,7 @@ Synthetic verification (no GPU/weights/data required):
 
 ```bash
 CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-  python -m pytest -q tests/test_layer_fusion.py
+  python -m pytest -q tests/experiments/layer_fusion/test_layer_fusion.py
 ```
 
 Implementation validation, 22 October 2026: 50 focused CPU tests and the

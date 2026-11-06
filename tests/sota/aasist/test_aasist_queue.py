@@ -12,7 +12,7 @@ import pytest
 def queue_project(tmp_path):
     script = tmp_path / "scripts/aasist/train_folds.sh"
     script.parent.mkdir(parents=True)
-    source = Path(__file__).resolve().parents[1] / "scripts/aasist/train_folds.sh"
+    source = Path(__file__).resolve().parents[3] / "scripts/aasist/train_folds.sh"
     script.write_text(source.read_text())
     binaries = tmp_path / "bin"
     binaries.mkdir()

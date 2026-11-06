@@ -147,3 +147,16 @@ then provide SSH1 synchronization instructions. This overrides publication
 holds only; preserve active source bytes/jobs and exclude local records,
 outputs, datasets, pretrained weights and reference originals. Do not infer
 additional fold launches or evaluation permission from synchronization.
+
+
+## Experiment organization (owner decision, 6 November 2026)
+
+Inactive diagnostics, layer-fusion and token-fusion work is organized under
+`experiments/` in source/scripts/tests/outputs. See docs/EXPERIMENTS_LAYOUT.md.
+Preserve relative compatibility links: they retain historical imports, hashes
+and output references without duplicate data. Active TF2 runtime files/shared
+diagnostic dependencies and active run/launch directories remain physically at
+their original paths; organized entries link there. Do not move or edit these
+until jobs finish and guards/completion have been checked. The owner requests
+a reminder to finish deferred relocation at the next post-training cleanup.
+This organization does not authorize a stop, restart, new fit or evaluation.

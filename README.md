@@ -1,5 +1,7 @@
 # Audio deepfake detection: LODO runs
 
+Experiment navigation and temporary live-job compatibility paths: [experiment layout](docs/EXPERIMENTS_LAYOUT.md).
+
 ## Isolated TF2 token-fusion adaptation (2026-10-31)
 
 Exploratory TF0–TF3 code is under `token_fusion/` in `src/` and `scripts/`.
@@ -23,8 +25,8 @@ Primary LACF is preserved; this does not select its final architecture.
 
 ## Separate frozen layer-fusion experiments (2026-10-22)
 
-C0–C4 are implemented separately under `src/audio_deepfake_detection/layer_fusion/`
-and `scripts/layer_fusion/`, with focused synthetic tests. They retain CLAP,
+C0–C4 are implemented separately under `src/audio_deepfake_detection/experiments/layer_fusion/`
+and `scripts/experiments/layer_fusion/`, with focused synthetic tests. They retain CLAP,
 anchors and the full 35-D LACF backend, using detection BCE only. The planned
 source-only comparison has 135 fresh fits across F1–F3 inner rotations and
 seeds1234/1235/1236. This authorizes implementation only; no new experiments
@@ -762,7 +764,7 @@ authorize held-out evaluation or a normalization change.
 Synthetic CPU checks only:
 
 ```bash
-CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q -p no:cacheprovider tests/test_lacf.py tests/test_lacf_queue.py tests/test_evaluation_pipeline.py
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:. OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python -m pytest -q -p no:cacheprovider tests/lacf/test_lacf.py tests/lacf/test_lacf_queue.py tests/shared/test_evaluation_pipeline.py
 ```
 
 These tests establish component/loop correctness, not pretrained/GPU feasibility,
@@ -863,7 +865,7 @@ Other folds/protocols are not automatically launched by this policy change.
 
 The owner-authorized information-loss investigation is separate from primary
 training/evaluation; see the latest experiment protocol before running a stage.
-Step 2 uses `scripts/lacf/cache_diagnostics.py` for source train/dev features:
+Step 2 uses `scripts/experiments/lacf_diagnostics/cache_diagnostics.py` for source train/dev features:
 all 13 mask-pooled WavLM representations and the raw CLAP projection, shared
 across fitting seeds. Exact-length WavLM batches and independent CLAP mel batches
 use the existing encoder forwards. Source benchmarks record BF16 batch rounding,
