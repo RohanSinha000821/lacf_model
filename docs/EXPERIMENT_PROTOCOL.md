@@ -1,4 +1,106 @@
+## Frozen cached-CLAP TF2 F1 priority (9 November 2026)
+
+Owner stops partial SSL F2, preserving its snapshot/logs, and authorizes a fresh
+full-F1 seed1234 run of the prepared frozen-CLAP TF2 comparison after actual
+source GPU/crop-parity/reload/headroom checks. Preserve the separately running
+adapted-CLAP TF2 reference and its shutdown-recovery provenance. Keep F1's
+ASV2019/ASV5/CFAD source train/dev,three fixed up-to10s training views,centered
+dev,domain/class sampling,all12 Q/V rank8-alpha16 LoRA plus unchanged TF2,
+detectionBCE,BF16-FP32,AdamW1e-4 LoRA/3e-4 TF2,wd1e-4,constantLR,effective132,
+max30/patience5/strict equal-domain macro source EER. Fully frozen CLAP audio
+projections come from the exact-view source cache; CLAP never executes in
+training. WavLM must run live. Keep this experiment under experiments, with
+fresh pinned base+head and no probe initialization. No target evaluation,other
+folds/seeds,resume,retry,overwrite or publication. C4 remains prepared/held.
+
+## Partial SSL F2 launch authorization (9 November 2026)
+
+Owner requests fresh seed1234 F2 in `ssl_gating_20s_top4_bf16`, matching the
+approved partial F3/F4 recipe below. Train ASV2019 LA,ASV5,SpeechFake train;
+their full dev sets select/calibrate by strict equal-domain macro EER. Retain
+batch24/BF16-FP32,last4 encoder blocks plus gating backend, Adam3e-6/wd1e-4,
+constantLR,CE+CKA,20s training/full-recording batch-one dev,max10/patience3,
+8train/4dev workers,prefetch2,CPUthreads2,19GiB cap. Source readiness and a
+bounded source GPU/reload check precede fresh official-base initialization.
+Keep original full-FT F2 separate. This launch authorizes no new target
+evaluation or target-guided choice; preserve TF2 and hold the prepared C4 run.
+No resume,retry,overwrite,other seeds/folds or automatic publication.
+
 # Cross-domain experiment protocol (v4)
+
+## Partial SSL F3 native P1 evaluation (owner request, 2026-11-09)
+
+Evaluate only completed partial/BF16 F3 seed1234 on ASV5 eval, retaining the
+source-selected epoch9 checkpoint and the original full-recording batch-one
+scoring recipe. Verify completion/checkpoint/configuration/source-code hashes,
+training's full fresh-reload source CSV/calibration hashes, canonical source
+membership and frozen calibration, then bounded fresh source score parity.
+Reuse those preserved source exports; do not overwrite or rescore them using
+the original FP32 exporter. The separate `scripts/ssl_gating/evaluate_partial.py`
+uses the same partial model and BF16/FP32 score function as source development.
+Use the local cache,8workers/prefetch2/CPUthreads2/19GiB allocator cap; full
+recordings remain mandatory on failure. Report shared EER/AUROC and source
+1/5/10percent APCER operating points with raw and separately labelled
+transductive transfer and1000 conditional bootstrap resamples(seed2026).
+Keep family results separate from full fine-tuning. No other evaluation,
+retraining, target-guided recipe changes, retry/resume or publication.
+Later same-day owner reply authorizes one corrected F3 restart after the first
+process failed at configuration JSON identity validation before target access.
+Retain equivalent JSON-key normalization and exact source hashes/calibration;
+no scientific recipe change or additional automatic retry is authorized.
+Following the later9November reboot, the owner authorizes a fresh SSH1 F3
+evaluation restart. Archive the interrupted partial target CSV/manifest/source
+validation with hashes; retain all checkpoint/source exports and prior logs.
+The identical tested exporter repeats source gates and scores the full target
+from the beginning, without partial recovery or a scientific recipe change.
+This authorizes this one restart only, leaving SSH2 work unchanged.
+
+## Partial SSL F4 evaluation authorized (2026-11-09)
+
+Evaluate the completed `ssl_gating_20s_top4_bf16` F4 seed1234 checkpoint only,
+selectedepoch3/finalepoch6. The new `scripts/ssl_gating/evaluate_partial.py`
+preserves BF16 autocast with FP32 pooling and score subtraction, full unpadded
+batch-one recordings, source score orientation and the shared P1 evaluator.
+The initial SSH2 exporter used a small BF16 adapter around the shared
+exporter, without modifying active original-SSL F2 or TF2 runtime files. The
+11November consolidation uses the existing `partial_scores` path directly
+with the same full-recording/BF16-FP32 contract; original results and their
+evaluator hashes are preserved. Verify checkpoint/
+config/training-code identity, canonical source CSV hashes and exact source
+macro/calibration reproduction; verify bounded fresh source scores bit-exact
+before target access. Training already performed full-source fresh-checkpoint
+reload, so the hash-bound source exports may be reused rather than re-encoded.
+Keep raw and separately labelled transductive transfer and1000 conditional
+bootstrap replicates/seed2026. No target determines thresholds or design.
+
+Only after these gates may ASV2019 LA eval be scored. Source-only preflight
+checked six boundary records plus one129.75475s recording, all exact against
+saved training exports. This is bounded scoring/memory validation, not a new
+all-audio checksum audit. Batch1/4workers/prefetch2/CPUthreads2/6GiB allocator
+cap protects the preserved TF2 and original F2 evaluation. Preserve BF16 and
+original cuDNN TF32true/CUDA-matmul TF32false; stop on failure without cropping,
+skipping, automatic retry, precision fallback or overwriting results. Keep the
+partial family separate from full-FT SSL. No other evaluation or publication.
+
+## Completed-epoch TF2 restart after shutdown (2026-11-09)
+
+The owner requests restarting the interrupted SSH2 jobs. TF2 full F1 uses
+`--continue-from <interrupted run>` into a new output directory. Restore latest
+completed epoch10 trainable weights and AdamW state, retain selected epoch6,
+patience4/5 and maximum logical epoch30; repeat unsaved epoch11. Parent recipe,
+source/base/code identities, checkpoint bindings and completed history must
+agree; optimizer groups cannot change. RNG/sampler/worker streams restart, so
+this is completed-epoch recovery, not exact uninterrupted or mid-epoch resume.
+All existing architecture/input/precision/LR/batch/loading/selection settings
+and final selected-checkpoint full-source reload/calibration gates remain.
+The earlier weights-only recovery remains a distinct supported operation.
+Preserve both interrupted runs and disclose the trajectory limitation.
+
+SSL partial F4 is already complete and is not retrained. Original SSL F2
+evaluation may reuse registered complete source scores, preserving partial files
+and original training numerical defaults. Its source-EER tolerance is unchanged;
+CFAD target access remains gated. No automatic retries, other fits, target
+evaluations, frozen-CLAP launch, download or publication are authorized.
 
 ## Later SSL top-four/BF16 adaptation approved (2026-11-05)
 
@@ -761,7 +863,7 @@ Published-method starting values below were checked against the five supplied pa
 | WavLM-WA | random 4 s at 16 kHz; full utterance | **96 × 1 (latest project decision; paper used 32; earlier batch-64 F1 kept separately)** | Adam; WavLM `2e-5`, layer weights/classifier `5e-3` | exponential `gamma=0.95`; 100; 5 (**study choice; paper patience 50**) | weighted CE for `[bona fide, spoof] = [9, 1]`; BF16; 13 learned representation weights. Current script omits the paper's MUSAN/RIR and codec augmentation, initial-weight regularization, and layer-wise LR decay; do not call it an exact reproduction until these are implemented and verified. |
 | AASIST | random 64,600-sample train crop after 16 kHz resampling; first 64,600 samples for dev/test; repeat short audio | **24 × 1** | Adam `1e-4`, weight decay `1e-4`; FP32 | per-update cosine to `5e-6`; 100; 5 (**study-choice patience**) | weighted CE, reorder original class weights to `[0.9, 0.1]` and logits to bona-fide/spoof order; official architecture. Frequency masking off per released config; no RawBoost; no SWA under shared single-best source-only checkpoint policy. |
 | SSL feature gating, version2 | random up-to20s at16kHz, dynamic right-zero-padding in training; unpadded full utterance in dev/test | **5 × 1** | Adam `3e-6`, weight decay `1e-4`; FP32, full frontend fine-tuning | constant LR per released optimizer; 10; 3 | XLS-R300M,25states,128-D SwiGLU,four MultiConv blocks,four-head pooling; weightedCE `[0.9,0.1]` plus differentiableCKA,coefficient1. NoRawBoost; layout/CKA repairs. Owner22October training-cap adaptation; retain full dev/test. |
-| SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, RawBoost; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
+| SAM-AASIST | AASIST's 64,600-sample policy | **24 × 1** | SAM with Adam base optimizer at `1e-4` | cosine to `5e-6`; 100; 5 (**study-choice patience**) | `rho=0.05`, weight decay `1e-4`, **RawBoost off (owner 2026-11-09; released algorithm0)**; weighted CE `[0.9, 0.1]`. Released config includes an In-The-Wild validation split: replace it with source-only development splits in every LODO fold. |
 | LHCC | exactly 64,600 samples at 16 kHz, truncated/repeated | **8 × 1** | Adam `1e-6`, weight decay `1e-4` | schedule not reported; 10; 2 | XLS-R 300M low/high-level features, AFM, DCM, weighted BCE and RawBoost. Numeric class weights are not reported. Paper uses bona fide=1/spoof=0 and `1 - p_bona_fide` as spoof score; map labels and scores explicitly. |
 | LACF-10s frozen | one common physical interval, at most 10 s; resample it separately to WavLM 16 kHz and CLAP 48 kHz | configurable; default 4 × 8, effective 32 pending source-only pilot | AdamW `3e-4` for adapter/classifier, weight decay `1e-4`; no automatic LR scaling | constant LR (owner-approved); 30; 5 | BF16 mixed precision with FP32 sensitive calculations; 661,479 trainable adapter/head parameters; seed 1234 only; `BCEWithLogits + 0.25 semantic BCE + 0.10 bona-fide JS`; freeze WavLM and CLAP; eight fixed anchors and temperature `0.07`. |
 | LACF-4s frozen | same 4 s physical interval at 16/48 kHz | configurable, same effective batch as LACF-10s (old 8 × 4 assumption superseded) | same as LACF-10s | same as LACF-10s | same as LACF-10s; only input duration and feasible microbatch differ. |
@@ -1321,3 +1423,69 @@ any epoch checkpoint/completion. This is not evidence of a full-device OOM.
 The owner then explicitly chose to leave F1 stopped: no queue, restart or
 checkpoint resume. Preserve failure artifacts and seek a new instruction for
 any future fresh launch; no automatic input/precision/batch/recipe change.
+
+
+## SAM-AASIST F1 recipe (owner decision, 9 November 2026)
+
+Implement the fourth baseline as the authors' small AASIST network with SAM,
+not an SSL encoder. The owner requests fresh F1 seed1234 after source-only
+feasibility checks, and explicitly chooses released RawBoost algorithm0 (off).
+This supersedes the older SAM row's augmentation default: the paper mentions
+RawBoost but does not specify its algorithm, whereas the pinned released YAML
+turns it off. No target result informed this choice.
+
+Pin SAM-AntiSpoofing `59c69de3ffab8025acb815875f29e93a3069747f`.
+Use its pooling ratios `[0.5,0.5,0.5,0.5]`, 297866 trainable parameters and fresh
+random initialization. The existing AASIST baseline keeps temporal pooling0.7;
+this is a published-method comparison, not an optimizer-only ablation. No
+pretrained encoder, published detector, other fold or feasibility weights
+initialize the final run.
+
+Retain batch24/accum1, FP32 (matmul TF32 off, cuDNN TF32 on), nonadaptive
+SAM rho0.05 around Adam LR1e-4/wd1e-4 and per-completed-update cosine to5e-6,
+maximum100epochs/patience5. Weighted CE uses bona-fide/spoof `[0.9,0.1]`.
+Each batch is decoded/cropped once and reused for both passes with fresh dropout;
+first-pass BatchNorm updates running statistics, second-pass momentum is zero,
+then original momenta are restored. Restore unperturbed parameters before the
+single Adam and scheduler update. Stop on nonfinite values or failure.
+
+At16kHz use random64600-sample training crops, repeat short recordings, and
+first64600/repeat-short batch-one source-dev scoring. Random train cropping
+follows the paper/shared baseline policy rather than the released SAM loader's
+first-segment behavior. Source-domain-balanced sampling retains natural classes
+and all N replacement draws, including a partial final batch. Only ASV2019 LA,
+ASV5 and CFAD train/dev participate in F1. Strict equal-weight source-dev macro
+EER selects the checkpoint; ties retain the earlier epoch. Replace the released
+external In-The-Wild validation with these source-dev sets exclusively.
+
+Start with16train/8dev workers, prefetch2, pinned memory, persistent workers and
+CPUthreads2; measure actual source throughput and GPU allocation before launch.
+Save atomic unperturbed best/last checkpoints, Adam moments/scheduler/SAM recipe,
+15minute/end-training-phase snapshots and epoch history. Snapshots are not exact
+resume or completion. Completion additionally requires a fresh selected-model
+reload, identical full source-dev scores, exports and source calibration.
+
+Only this F1 seed1234 launch is authorized. The documented SAM family seed plan
+1234/2345/3456 remains unchanged; other seeds/folds are not queued. No target
+or external evaluation, automatic retry/resume, precision/batch fallback or
+publication is authorized. Operational validation and live status belong in the
+local handoff; CPU tests alone are not real-data/GPU validation.
+
+## TF2 cached frozen-CLAP preparation only (7 November 2026)
+
+The owner requests keeping this comparison ready, without launching it.
+The isolated experiments/tf2_frozen_clap implementation retains full F1 source
+train/dev, seed1234 as the proposed single-run comparison, rank8/alpha16 all12
+WavLM Q/V LoRA and the original TF2 fusion with detection BCE. Frozen CLAP
+audio embeddings come from the exact existing fixed-view source cache, avoiding
+CLAP encoding/preprocessing/model residency. No frozen WavLM features are used
+while LoRA changes. Trainables5,202,657; original AdamW LR1e-4/3e-4/wd1e-4,
+constantLR/effective132/BF16-FP32/max30/patience5/strict macro source EER remain.
+This is preparation for an exploratory full-fold comparison, not an inner-source
+selection result or an alteration of existing family seed plans. Preserve the
+reference's shutdown/weights-recovery caveat. Real GPU/cache-parity/throughput/
+memory/reload validation, launch authorization and future target evaluation
+remain unperformed gates. Candidate physical22/workers8/cap10GiB are inherited,
+not proven safe alongside both current jobs. Future outputs use the descriptive
+family outputs/experiments/tf2_frozen_clap/f1/seed_1234; old folders stay intact.
+The README in scripts/experiments/tf2_frozen_clap gives code/tests and gates.

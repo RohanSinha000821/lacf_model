@@ -166,3 +166,134 @@ their original paths; organized entries link there. Do not move or edit these
 until jobs finish and guards/completion have been checked. The owner requests
 a reminder to finish deferred relocation at the next post-training cleanup.
 This organization does not authorize a stop, restart, new fit or evaluation.
+
+## Partial SSL F3 evaluation authorized (2026-11-09)
+
+The owner requests native P1 evaluation of completed `ssl_gating_20s_top4_bf16`
+F3 seed1234 on SSH1. Verify selected epoch9/checkpoint identity, all completed
+source exports/calibration and fresh bounded BF16 source parity before ASV5
+eval access. Use the separate partial evaluator, full unpadded batch1, trained
+BF16/FP32 pooling-score policy and shared raw/transductive/bootstrap metrics.
+Preserve original full-FT runs, active other-host work and all source bytes.
+No crop/skip, fallback precision, automatic retry/resume, other fold/seed,
+training, target-guided changes or publication is authorized.
+
+Later same-day owner reply explicitly authorizes one corrected F3 evaluation
+restart after the configuration-JSON check failed before target access. Preserve
+the first attempt and use the tested exporter with identical checkpoint/recipe.
+This overrides the retry hold for this one restart only; stop on a new failure.
+
+After the9November reboot, the owner requests restarting the work on SSH1.
+This authorizes only a fresh partial SSL F3 evaluation with the same validated
+exporter/checkpoint/recipe. Preserve the interrupted partial CSV and provenance
+in the previous attempt's archive; partial score recovery is not implemented.
+Restart full target scoring, repeat source gates and stop on a new failure.
+Do not restart SSH2 jobs, training or another user's processes.
+
+
+## SAM-AASIST F1 authorization (9 November 2026)
+
+Owner requests implementing and starting fresh SAM-AASIST F1 seed1234 after
+source-only feasibility/VRAM checks, and explicitly selects released RawBoost
+algorithm0 (off). Use the pinned authors' pooling0.5 architecture,297866 random
+initialized trainable parameters, batch24/FP32, two-pass nonadaptive SAM rho0.05
+around Adam1e-4/wd1e-4, per-update cosine floor5e-6, max100/patience5 and the
+shared source-only sampler/strict macro EER selection. See the dated protocol
+for input, BatchNorm and checkpoint contracts. No pretrained/pilot/fold weights
+initialize the final run. Other SAM seeds/folds, target evaluation, automatic
+resume/retry, scientific fallback and publication remain unauthorized. Preserve
+all existing outputs and other-host work; the family seed plan is unchanged.
+
+## Cached frozen-CLAP preparation and naming (7 November 2026)
+
+Owner requests preparation only of the TF2 comparison with WavLM Q/V LoRA
+and completely frozen cached CLAP,5,202,657 trainables. New code/scripts/tests
+must be under real experiments/tf2_frozen_clap/ folders, never edit active
+TF2/SSL runtime files. Reuse the existing matched source-crop CLAP cache;
+WavLM stays live. No launch, GPU probe, download, target evaluation or SSL
+resume implementation is authorized by preparation. Source-only GPU memory/
+throughput/cache-parity/reload checks and matching evidence remain pending.
+Use concise descriptive output families from now on; fold/seed identifiers
+remain explicit. Planned outputs/experiments/tf2_frozen_clap/f1/seed_1234/.
+Do not rename existing historical or active output folders. See the experiment
+README under scripts/experiments/tf2_frozen_clap/.
+
+## Reboot recovery authorized (9 November 2026)
+
+Owner requests restarting interrupted SSH2 jobs after the 14:52 shutdown and
+15:34 boot. SSL partial F4 already completed with source verification: do not
+restart its training. Restart only the interrupted original SSL F2 evaluation,
+reusing hash-verified complete source CSVs and preserving incomplete files;
+retain original numerical defaults and the unchanged source gate before target
+access. Restart TF2 full F1 into a new descriptive output folder from the latest
+completed epoch10 weights and optimizer, retaining selected epoch6 and patience4.
+Repeat unsaved epoch11, retain maximum30/patience5 and all scientific settings.
+RNG/sampler/worker streams restart; this is not exact uninterrupted resume.
+Minimal tested --continue-from support is authorized for this epoch restart;
+preserve old runs, stop on failure and do not retry automatically. Frozen-CLAP
+preparation stays unlaunched. No other training/evaluation, downloads or automatic
+commit/push. Check live evidence/local handoff rather than historical PIDs.
+
+## Partial SSL F4 native evaluation authorized (9 November 2026)
+
+Owner requests evaluation of completed `ssl_gating_20s_top4_bf16` F4 seed1234
+only. This overrides the F4 target hold for this fixed baseline checkpoint.
+Use the separate BF16 evaluator, strict checkpoint/config/source-export hashes,
+canonical source membership, reproduced source macro EER/calibration and bounded
+fresh-source bit-exact parity before opening ASV2019 LA eval. Preserve full
+unpadded batch-one recordings, BF16/FP32 pooling and scores, original numerical
+defaults, source thresholds, raw/separate transductive transfer and conditional
+bootstrap intervals. Reuse the already full-reload-verified source CSVs; do not
+rerun encoders for every source unnecessarily. Preserve active TF2/F2 evaluation
+with a separate6GiB allocator guard,4workers/prefetch2/CPUthreads2. Stop on
+failure without crop/skip/precision fallback/retry/overwrite. No other targets,
+training, tuning on targets, downloads or automatic publication.
+
+
+## SSL partial F2 training authorized (9 November 2026)
+
+Owner requests fresh F2 seed1234 training in `ssl_gating_20s_top4_bf16`,
+using the unchanged approved F3/F4 partial recipe: frontend/blocks0–19 frozen,
+last4 XLS-R blocks and full gating backend train; BF16 with sensitive FP32;
+batch24/accum1, Adam3e-6/wd1e-4/constantLR, CE+CKA, training-only20s, full
+batch-one source dev, max10/patience3, strict equal-domain macro source EER,
+ties earlier. Use8train/4dev workers/prefetch2/CPUthreads2/19GiB cap after
+source readiness and bounded GPU/reload checks. Initialize from pinned official
+XLS-R and a fresh backend, never full-FT F2 or another fold. F2 sources are
+ASV2019,ASV5,SpeechFake; no CFAD target access/evaluation is authorized.
+Preserve active TF2 and its guarded source bytes. Keep C4 prepared but held
+at the owner's latest instruction. No automatic retry, resume, overwrite,
+other folds/seeds, downloads, commit or push. Record measured launch status
+in the ignored local handoff; CPU checks alone do not establish GPU readiness.
+
+
+## Frozen cached-CLAP TF2 F1 launch authorized (9 November 2026)
+
+Owner stops the newly started partial SSL F2 to prioritize the prepared full-F1
+TF2 frozen-CLAP comparison. Preserve the SSL snapshot/logs with an owner-stop
+record; do not resume or retry it automatically. Preserve active adapted TF2
+and its source guards. After focused CPU and actual source-only GPU/cache-parity/
+reload/headroom checks, start fresh seed1234 in
+`outputs/experiments/tf2_frozen_clap/f1/seed_1234/`. Train on ASV2019,ASV5,CFAD;
+their three dev sets select/calibrate source-only. Train all12-block Q/V rank8
+LoRA alpha16/no dropout plus unchanged TF2,5202657 parameters. CLAP audio stays
+an input through exact-view verified cached raw projections; its encoder is
+not loaded/executed for final training. WavLM remains live because LoRA changes
+it. Retain existing fixed10s views,domain/class sampling,detectionBCE only,
+AdamW LoRALR1e-4/TF2LR3e-4/wd1e-4/constant,BF16-FP32,effective132,max30/
+patience5,strict equal-domain macro source EER/ties earlier. All new experiment
+implementation/tests/outputs stay under experiments. No target evaluation,
+other folds/seeds,pilot initialization,resume,retry,overwrite or publication.
+The prepared C4 run stays held. Discard every validation update; final source
+full reload/export/calibration remains mandatory before completion.
+
+
+## Both-host publication and synchronization (11 November 2026)
+
+The owner requests publishing the reviewed uncommitted code/documentation from
+both SSH1 and SSH2 and synchronizing their main checkouts. This overrides earlier
+publication holds only. Preserve active-job source bytes, local records, outputs,
+reference originals, datasets and caches. Reconcile overlapping changes before
+publication, run CUDA-hidden offline CPU checks, then verify the shared commit,
+clean Git status and all active guards on both hosts. No experiment launch,
+training/evaluation restart, recipe change or output transfer follows from sync.

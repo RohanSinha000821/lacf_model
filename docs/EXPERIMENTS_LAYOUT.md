@@ -9,6 +9,7 @@ source-development cache `outputs/lacf_frozen_dev_features/` remains there too.
 | LACF diagnostics, probes and ablations | `src/audio_deepfake_detection/experiments/lacf_diagnostics/` | `scripts/experiments/lacf_diagnostics/` | `tests/experiments/lacf_diagnostics/` | `outputs/experiments/lacf_diagnostics/` |
 | Layer fusion and readout controls | `src/audio_deepfake_detection/experiments/layer_fusion/` | `scripts/experiments/layer_fusion/` | `tests/experiments/layer_fusion/` | `outputs/experiments/layer_fusion/` |
 | Token fusion and encoder adaptation | `src/audio_deepfake_detection/experiments/token_fusion/` | `scripts/experiments/token_fusion/` | `tests/experiments/token_fusion/` | `outputs/experiments/token_fusion/` |
+| TF2 with frozen cached CLAP | `src/audio_deepfake_detection/experiments/tf2_frozen_clap/` | `scripts/experiments/tf2_frozen_clap/` | `tests/experiments/tf2_frozen_clap/` | `outputs/experiments/tf2_frozen_clap/` |
 
 Diagnostic outputs are grouped into `step1/`, `frozen_features/`, `probes_step3/`
 and `ablations_step4/`. Experiment definitions, recipes and saved records have
@@ -46,3 +47,13 @@ for future runs, and run CUDA-hidden CPU checks again. Keep historical compatibi
 paths and original code snapshots where recorded provenance requires them. Do not
 stop/restart a job, change a recipe or launch evaluation as part of this cleanup.
 This checklist is also in the local handoff; no timed reminder is scheduled.
+
+## Output naming and cached-CLAP preparation (7 November 2026)
+
+New experiments use concise descriptive method names; use fold/seed folders
+and a meaningful suffix for any separately authorized repeat. Existing folders
+keep their historical names. The new tf2_frozen_clap implementation is physically
+under experiments/ (no new compatibility links). Preparation is CPU-only;
+training/GPU validation are not launched. WavLM LoRA and TF2 train; matched
+CLAP embeddings are read from the preserved source cache without loading CLAP.
+See [its preparation guide](../scripts/experiments/tf2_frozen_clap/README.md).

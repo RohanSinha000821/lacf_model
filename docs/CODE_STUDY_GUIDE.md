@@ -660,6 +660,16 @@ Its `ssl_gating_20s_top4_bf16` family is a disclosed separate adaptation;
 the original FP32 exporter is not its evaluator. See README/protocol for the
 measured batch24/8train/4dev/BF16 recipe; no other fold is queued by the code.
 
+The separate `scripts/ssl_gating/evaluate_partial.py` verifies completion and
+strict partial-family identity, hashes and canonical membership of training's
+fresh-reloaded source exports, frozen calibration and bounded fresh BF16 source
+parity before opening the authorized target. It reuses `partial_scores` and
+full batch-one loading, binds all four score CSVs to the checkpoint in the
+shared manifest and calls shared raw/transductive/conditional-bootstrap metrics.
+Source files are never overwritten; prior evaluation artifacts block automatic
+retry. Synthetic source-isolation/precision/full-input checks live in
+`tests/sota/ssl_gating/test_ssl_gating_partial_evaluation.py`.
+
 New version2 artifacts follow `outputs/ssl_gating_20s/<fold>/<seed>/`, compatible with the common
 score-only evaluator and summary reader. The three-seed plan is unchanged.
 The trainer refuses existing artifacts; its run lock prevents simultaneous
@@ -692,3 +702,27 @@ Real-source maximum-input and bounded exact-reload checks passed; complete
 selected-checkpoint/source validation remains required before later evaluation.
 SSH2 preparation is not permission to launch other folds. No training resume,
 activation checkpointing or precision change is implemented by this adaptation.
+
+
+## SAM-AASIST flow
+
+- `src/audio_deepfake_detection/sota/sam_aasist.py`: released SAM pooling0.5
+  network, cached fixed sinc filters and public bona-fide/spoof logits. Reuses
+  the licensed AASIST architecture without changing the original baseline.
+- `src/audio_deepfake_detection/sota/sam_optimization.py`: first gradient,
+  global-L2 SAM perturbation, second gradient with BatchNorm momentum0,
+  unperturbed-weight restoration, one Adam/cosine update. Both passes share the
+  already prepared batch, while dropout draws remain independent.
+- `scripts/sam_aasist/train.py`: canonical source train/dev membership and
+  hashes, domain-balanced loaders, fresh fold initialization, strict macro EER,
+  atomic snapshots/best/last and history. Fresh selected checkpoint scoring must
+  exactly reproduce all source-dev scores before source CSV/calibration and
+  `training_complete.json` are written. No target reader or resume path.
+- `tests/sota/sam_aasist/`: independent optimizer mathematics, BatchNorm,
+  architecture/filter-cache parity, selection/isolation, checkpoint failure and
+  fresh-source completion tests. Run with CUDA hidden; GPU readiness is separate.
+
+The [SAM recipe](EXPERIMENT_PROTOCOL.md#sam-aasist-f1-recipe-owner-decision-9-november-2026)
+records RawBoost off, random64600 training/first64600 validation, batch24/FP32,
+source-only rules and the unchanged family seed plan. Preserve snapshots as
+intermediate artifacts; they are not exact mid-epoch resume or completed runs.

@@ -1,8 +1,39 @@
 # Audio deepfake detection: LODO runs
 
+Prepared experiment: [TF2 with frozen cached CLAP](scripts/experiments/tf2_frozen_clap/README.md)
+uses live WavLM LoRA and cached CLAP features. Training/GPU validation remain
+pending; planned outputs are `outputs/experiments/tf2_frozen_clap/f1/seed_1234/`.
+
 Experiment navigation and temporary live-job compatibility paths: [experiment layout](docs/EXPERIMENTS_LAYOUT.md).
 
+## SAM-AASIST baseline
+
+The fourth baseline uses a fresh297866-parameter AASIST with two-pass SAM;
+no pretrained encoder is required. See the [recipe and reproduction differences](docs/EXPERIMENT_PROTOCOL.md#sam-aasist-f1-recipe-owner-decision-9-november-2026).
+
+```bash
+source activate.sh
+PYTHONPATH=src:. python scripts/sam_aasist/train.py --fold f1 --seed 1234 \
+  --data-root /mnt/drive/audio-deepfake-cache --num-workers 16 --eval-workers 8 \
+  --prefetch-factor 2 --cpu-threads 2
+```
+
+Only the requested fresh F1 seed1234 launch is authorized. Outputs go to
+`outputs/sam_aasist/f1/1234`; existing run directories are refused. Batch24,
+FP32, RawBoost off, source-only selection and author pooling0.5 are fixed.
+Best/last checkpoints and periodic snapshots preserve unperturbed weights;
+training resume is not implemented. A completion marker requires full selected
+checkpoint source reload/export/calibration. Target evaluation requires a
+separate owner request. See the local handoff for actual readiness/live status.
+
 ## Isolated TF2 token-fusion adaptation (2026-10-31)
+
+Owner-authorized shutdown recovery can use `--continue-from <parent run>` to
+restore the latest completed epoch's weights/optimizer into a new output folder,
+retaining the selected best and patience. RNG/sampling streams restart; this is
+not exact uninterrupted resume. `--recover-from <best checkpoint>` remains the
+separate weights-only operation with a fresh optimizer. See the dated protocol;
+neither option authorizes automatic retries or a new experiment.
 
 Exploratory TF0–TF3 code is under `token_fusion/` in `src/` and `scripts/`.
 TF2 combines thirteen pooled WavLM layer tokens and one CLAP audio token with a
@@ -498,8 +529,8 @@ do not combine its results with the original full-FT/FP32 family. Source-tested
 settings are batch24,8train/4dev workers,prefetch2,19GiB cap and BF16 with FP32
 pooling/losses/scores; original LR, loss,20s training/full development and
 selection settings remain. See the dated protocol for caveats and evidence.
-Only F4seed1234 is authorized for launch now; this example does not authorize
-other folds or evaluation:
+Training/evaluation require separate fold-specific owner authorization; this
+training example does not authorize additional runs:
 
 ```bash
 python -u -m scripts.ssl_gating.train_partial --fold f4 --seed 1234 --batch-size 24 --num-workers 8 --eval-workers 4 --prefetch-factor 2 --gpu-memory-budget-gib 19
@@ -511,6 +542,22 @@ best/last checkpoints are saved after source development. Completion requires
 full-source fresh-checkpoint reload and source calibration. Exact mid-epoch
 resume is not implemented. The original FP32 evaluator is for the original
 family; it must not be used to score this BF16 variant as though identical.
+
+The separate `scripts/ssl_gating/evaluate_partial.py` verifies completion,
+checkpoint/configuration/code identity, canonical source exports and frozen
+calibration, then bounded exact BF16 source parity before target access. It
+retains full unpadded batch-one inputs and shared raw/transductive/conditional
+bootstrap metrics. The owner authorized F3 and F4 separately on9November;
+other fold evaluations require their own authorization. Historical F3 settings:
+
+```bash
+python -u -m scripts.ssl_gating.evaluate_partial --fold f3 --seed 1234 --num-workers 8 --prefetch-factor 2 --gpu-memory-budget-gib 19 --bootstrap-resamples 1000
+```
+
+F4 used4workers and a6GiB cap to preserve concurrent jobs. This command does not
+authorize a rerun: source scores are preserved, and prior evaluation artifacts
+block automatic retry. Partial score recovery and input/precision fallback are
+not implemented. Completed results retain their original evaluator hashes.
 
 ## LACF: primary frozen implementation
 
@@ -915,3 +962,21 @@ Seven unique configurations give189fresh inner-source/three-seed fits; A9_no_bf
 is reported as the identical A8 result. It preserves the last-layer primary
 architecture, loss weights and approved optimization settings. Existing outputs
 are refused; failures stop the queue. No target/external data or encoder pass.
+
+
+Partial SSL F2 (owner authorization,9 November): use the same separately
+labelled `ssl_gating_20s_top4_bf16` recipe as partial F3/F4, seed1234.
+Run/results: `outputs/ssl_gating_20s_top4_bf16/f2/1234/`; launch evidence/log:
+`outputs/ssl_gating_20s_top4_bf16/f2/launch/`. Source-only training; no new
+target evaluation. Check the local handoff for actual launch/completion status.
+
+
+Frozen-CLAP TF2 priority (owner decision,9 November): partial SSL F2 was
+stopped with its recovery snapshot/logs preserved. The isolated full-F1
+seed1234 comparison trains WavLM Q/V LoRA+TF2 (5,202,657 parameters), using
+exact-view frozen CLAP projections without executing CLAP during fitting.
+Twenty focused CPU checks and bounded real source crop-parity/GPU/reload
+validation passed. Run: `outputs/experiments/tf2_frozen_clap/f1/seed_1234/`;
+launch/evidence: `outputs/experiments/tf2_frozen_clap/launch/`. The adapted
+TF2 reference continues; C4 remains held. No new target evaluation. See local
+handoff/live logs for actual progress; full-source completion is still required.

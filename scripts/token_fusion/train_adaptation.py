@@ -118,6 +118,35 @@ def load_weights_recovery(path, config):
                    "exact_training_resume": False, "maximum_logical_epoch": config["maximum_epochs"]}
 
 
+def load_epoch_recovery(directory, config):
+    """Restart after a completed epoch, retaining AdamW state and prior selection."""
+    directory = directory.resolve()
+    if (directory / "complete.json").exists():
+        raise ValueError("Completed training must not be restarted")
+    best, record = load_weights_recovery(directory / "best_adaptation.pt", config)
+    path = directory / "last_adaptation.pt"
+    latest = torch.load(path, map_location="cpu", weights_only=True)
+    if latest["run_config_sha256"] != record["parent_config_sha256"]:
+        raise ValueError("Latest checkpoint is not bound to its parent config")
+    epoch, stale = latest["epoch"], latest["patience"]
+    if (type(epoch) is not int or not best["epoch"] <= epoch < config["maximum_epochs"]
+            or latest["best_epoch"] != best["epoch"]
+            or type(stale) is not int or not 0 <= stale < config["patience"]
+            or latest["source_dev"]["macro_eer"] < best["source_dev"]["macro_eer"]
+            or not isinstance(latest.get("optimizer_state_dict"), dict)):
+        raise ValueError("Invalid latest epoch, optimizer or checkpoint selection state")
+    history = [json.loads(line) for line in (directory / "history.jsonl").read_text().splitlines()]
+    if not history or any(history[-1][key] != latest[key]
+                          for key in ("epoch", "source_dev", "best_epoch", "patience")):
+        raise ValueError("Latest checkpoint differs from the completed-epoch history")
+    record.update(kind="completed_epoch_restart_after_host_shutdown", latest_checkpoint=str(path),
+                  latest_checkpoint_sha256=checkpoint_digest(path), latest_epoch=epoch,
+                  first_epoch=epoch + 1, optimizer_restored=True, patience_restarted_at=None,
+                  patience_restored=stale, rng_or_sampler_restored=False, exact_training_resume=False,
+                  limitation="Incomplete next epoch is repeated; RNG/sampler/worker streams restart")
+    return best, latest, record
+
+
 def save_adaptation_checkpoint(path, payload):
     temporary = path.with_suffix(path.suffix + ".tmp")
     if temporary.exists():
@@ -334,13 +363,15 @@ def development_metrics(scores, labels):
             "macro_auroc": statistics.mean(m["auroc"] for m in by_domain.values())}
 
 
-def fit(model, collator, datasets, args, provenance, logger, *, recovery=None):
+def fit(model, collator, datasets, args, provenance, logger, *, recovery=None, continuation=None):
     fitting, train, development = datasets
     dev = development if args.full_f1 else {args.held_domain: development}
     device = next(model.parameters()).device
     frozen = args.condition == "frozen"
+    if continuation is not None and recovery is None:
+        raise ValueError("Epoch continuation also requires the prior selected checkpoint")
     if recovery is not None:
-        restore_adaptation(model, recovery["trainable_state"])
+        restore_adaptation(model, (continuation or recovery)["trainable_state"])
     if frozen:
         marker = json.loads((CACHE / "complete.json").read_text())
         bank = {}
@@ -374,9 +405,21 @@ def fit(model, collator, datasets, args, provenance, logger, *, recovery=None):
         first_epoch = best_epoch + 1
         save_adaptation_checkpoint(args.output / "best_adaptation.pt",
                                    {**recovery, "run_config_sha256": config_digest})
-        logger.info("RECOVERY | epoch%d selected weights; fresh optimizer/RNG/sampler; next epoch%d; "
-                    "preserving parent best EER%.4f%%, max logical epoch30, patience reset0/5; not exact resume",
-                    best_epoch, first_epoch, best*100)
+        if continuation is not None:
+            first_epoch, stale = continuation["epoch"] + 1, continuation["patience"]
+            groups = [{k: v for k, v in group.items() if k != "params"} for group in optimizer.param_groups]
+            saved_groups = continuation["optimizer_state_dict"]["param_groups"]
+            if (groups != [{k: v for k, v in group.items() if k != "params"} for group in saved_groups]
+                    or [len(g["params"]) for g in optimizer.param_groups] != [len(g["params"]) for g in saved_groups]):
+                raise ValueError("Saved optimizer groups differ from the approved recipe")
+            optimizer.load_state_dict(continuation["optimizer_state_dict"])
+            logger.info("RESTART | latest epoch%d weights/optimizer; next epoch%d; best epoch%d EER%.4f%%; "
+                        "patience retained%d/5; RNG/sampler restart, not exact resume",
+                        continuation["epoch"], first_epoch, best_epoch, best*100, stale)
+        else:
+            logger.info("RECOVERY | epoch%d selected weights; fresh optimizer/RNG/sampler; next epoch%d; "
+                        "preserving parent best EER%.4f%%, max logical epoch30, patience reset0/5; not exact resume",
+                        best_epoch, first_epoch, best*100)
     with (args.output / "history.jsonl").open("x") as history:
         for epoch in range(first_epoch, 31):
             check_guards(provenance)
@@ -467,8 +510,11 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--data-root", type=Path, default=Path("/mnt/drive/audio-deepfake-cache"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--recover-from", type=Path,
-                        help="Explicit selected-weights recovery into a NEW full-F1 run; fresh optimizer, not exact resume")
+    restart = parser.add_mutually_exclusive_group()
+    restart.add_argument("--recover-from", type=Path,
+                         help="Explicit selected-weights recovery into a NEW full-F1 run; fresh optimizer, not exact resume")
+    restart.add_argument("--continue-from", type=Path,
+                         help="Parent run with latest completed-epoch weights/optimizer and best; NEW output, RNG restarts")
     args = parser.parse_args()
     if args.full_f1 and (args.held_domain is not None or args.mode != "train"):
         parser.error("Full F1 is train mode with all three sources; do not specify a held source")
@@ -480,8 +526,8 @@ def main():
         parser.error("The canonical ASV5-train memory example must be a fitting source; use another inner hold for probes")
     if args.condition == "frozen" and (args.mode == "probe" or args.physical_batch != 132):
         parser.error("Frozen references use cached features/batch132 in train mode; no encoder probe needed")
-    if args.recover_from is not None and (not args.full_f1 or args.mode != "train" or args.condition == "frozen"):
-        parser.error("Weights recovery requires full-F1 adaptation training")
+    if (args.recover_from is not None or args.continue_from is not None) and (not args.full_f1 or args.mode != "train" or args.condition == "frozen"):
+        parser.error("Recovery requires full-F1 adaptation training")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(including_emulation=False):
         raise RuntimeError("Native CUDA BF16 is required; no precision fallback")
     torch.cuda.set_per_process_memory_fraction(10*1024**3/torch.cuda.get_device_properties(0).total_memory)
@@ -533,10 +579,14 @@ def main():
                                 "fresh official base plus fresh TF2 and zero-delta LoRA; no target-selected checkpoint",
               "maximum_epochs": 30, "patience": 5, "scheduler": "constant", "resume": False, "target_access": False,
               "gpu_allocator_budget_gib": 10, "automatic_long_queue": False}
-    recovery = None
+    recovery = continuation = None
     if args.recover_from is not None:
         recovery, run_config["recovery"] = load_weights_recovery(args.recover_from, run_config)
         run_config["initialization"] = "parent source-selected adaptation weights on pinned bases; fresh optimizer/RNG/sampler"
+    if args.continue_from is not None:
+        recovery, continuation, run_config["recovery"] = load_epoch_recovery(args.continue_from, run_config)
+        run_config["initialization"] = "parent latest completed-epoch weights/optimizer on pinned bases; RNG/sampler restart"
+        run_config["completed_epoch_restart"] = True
     save_json(args.output / "config.json", run_config)
     logger.info("DATA | train sources=%s records=%d | dev=%s | full_f1=%s",
                 [d.identifiers[0].split("/", 1)[0] for d in data[0]], len(data[1]),
@@ -545,7 +595,7 @@ def main():
     if args.mode == "probe":
         probe(model, collator, data, args, logger)
     else:
-        fit(model, collator, data, args, provenance, logger, recovery=recovery)
+        fit(model, collator, data, args, provenance, logger, recovery=recovery, continuation=continuation)
     check_guards(provenance)
 
 

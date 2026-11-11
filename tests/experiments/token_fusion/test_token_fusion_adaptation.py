@@ -243,8 +243,8 @@ def test_full_f1_macro_eer_gives_equal_weight_to_unequal_source_sizes():
     assert metrics['macro_eer']==.5 and metrics['macro_auroc']==.5
 
 
-@pytest.mark.parametrize('recover',[False,True])
-def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(tmp_path,monkeypatch,recover):
+@pytest.mark.parametrize('mode',['fresh','weights','epoch','bad_optimizer'])
+def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(tmp_path,monkeypatch,mode):
     import logging
     from scripts.token_fusion import train_adaptation as runner
     class Toy(nn.Module):
@@ -252,7 +252,7 @@ def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(
             super().__init__();self.weight=nn.Parameter(torch.tensor(.1))
             self.objective=LACFLoss(ComponentConfig(semantic_loss=False,bonafide_loss=False))
         def forward(self,b):return {'logit':self.weight*b['x']}
-        def optimizer(self):return torch.optim.SGD(self.parameters(),lr=.01)
+        def optimizer(self):return torch.optim.SGD(self.parameters(),lr=.01,momentum=.9)
     sources=['asv2019','asv5','cfad']
     def dataset(d,part,n):
         rows=[(str(tmp_path/d/part/str(n-i)),i%2) for i in range(n)]
@@ -272,14 +272,33 @@ def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(
     args=SimpleNamespace(full_f1=True,held_domain=None,condition='wavlm_lora_clap',
         seed=1234,physical_batch=2,workers=0,data_root=tmp_path,output=tmp_path)
     initial=Toy()
-    recovery=None
+    recover=mode!='fresh'
+    recovery=continuation=None
     if recover:
         metrics={'by_domain':{d:{'eer':0.,'auroc':1.} for d in sources},'macro_eer':0.,'macro_auroc':1.}
         recovery={'trainable_state':initial.state_dict(),'epoch':4,'source_dev':metrics}
         # A different fresh initialization must be overwritten before the optimizer starts.
         with torch.no_grad():initial.weight.fill_(.8)
         recovery['trainable_state']={'weight':torch.tensor(.1)}
-    runner.fit(initial,None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'),recovery=recovery)
+    if mode in ('epoch','bad_optimizer'):
+        latest=Toy()
+        with torch.no_grad():latest.weight.fill_(.2)
+        optimizer=latest.optimizer();latest.weight.square().backward();optimizer.step()
+        continuation={'trainable_state':{'weight':latest.weight.detach().clone()},'epoch':8,'patience':4,
+                      'optimizer_state_dict':optimizer.state_dict()}
+        train_epoch=runner.train_audio_epoch
+        def checked_epoch(model,loader,restored,device,**kwargs):
+            assert model.weight.item()==pytest.approx(latest.weight.item())
+            torch.testing.assert_close(restored.state[model.weight]['momentum_buffer'],optimizer.state[latest.weight]['momentum_buffer'])
+            return train_epoch(model,loader,restored,device,**kwargs)
+        monkeypatch.setattr(runner,'train_audio_epoch',checked_epoch)
+    if mode=='bad_optimizer':
+        continuation['optimizer_state_dict']['param_groups'][0]['lr']=.5
+        with pytest.raises(ValueError,match='optimizer groups'):
+            runner.fit(initial,None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'),recovery=recovery,continuation=continuation)
+        assert not (tmp_path/'history.jsonl').exists() and not (tmp_path/'complete.json').exists()
+        return
+    runner.fit(initial,None,(fitting,train,dev),args,{'code_sha256':{}},logging.getLogger('full_f1_test'),recovery=recovery,continuation=continuation)
     complete=json.loads((tmp_path/'complete.json').read_text())
     assert complete['full_f1'] and complete['sources']==sources
     assert complete['best_epoch']==(4 if recover else 1) and complete['final_epoch']==(9 if recover else 6)
@@ -295,7 +314,8 @@ def test_full_f1_fit_reloads_all_source_scores_calibrates_and_keeps_earlier_tie(
     assert last['epoch']==complete['final_epoch'] and last['patience']==5
     assert 'optimizer_state_dict' in last and last['best_epoch']==complete['best_epoch']
     history=[json.loads(line) for line in (tmp_path/'history.jsonl').read_text().splitlines()]
-    assert history[0]['epoch']==(5 if recover else 1)
+    assert history[0]['epoch']==(9 if mode=='epoch' else 5 if recover else 1)
+    if mode=='epoch':assert len(history)==1
     if recover:
         best=torch.load(tmp_path/'best_adaptation.pt',map_location='cpu',weights_only=True)
         assert best['trainable_state']['weight'].item()==pytest.approx(.1)
@@ -328,6 +348,35 @@ def test_weights_recovery_binds_parent_recipe_and_rejects_mismatch(tmp_path):
     state['run_config_sha256']='changed';torch.save(state,path)
     with pytest.raises(ValueError,match='bound'):
         runner.load_weights_recovery(path,config)
+
+
+def test_epoch_recovery_preserves_latest_optimizer_best_and_patience(tmp_path):
+    from scripts.token_fusion import train_adaptation as runner
+    fields=('condition','fold','held_source','model','pretrained','training_sources','selection',
+            'source_partitions','cache_config_sha256','physical_batch','effective_batch','accumulation_steps',
+            'workers','development_workers','prefetch_factor','precision','optimizer','scheduler','patience')
+    config=dict.fromkeys(fields,'same')
+    config.update(mode='train',full_f1=True,seed=1234,condition='wavlm_lora_clap',target_access=False,
+                  development_sources=['asv2019','asv5','cfad'],maximum_epochs=30,patience=5,
+                  provenance={'code_sha256':{},'preserved_job_guards':{}})
+    (tmp_path/'config.json').write_text(json.dumps(config))
+    metrics={'by_domain':{d:{'eer':.1,'auroc':.9} for d in config['development_sources']},'macro_eer':.1,'macro_auroc':.9}
+    best={'epoch':6,'source_dev':metrics,'trainable_state':{'weight':torch.tensor(.1)},
+          'run_config_sha256':hashlib.sha256((tmp_path/'config.json').read_bytes()).hexdigest()}
+    torch.save(best,tmp_path/'best_adaptation.pt')
+    latest={**best,'epoch':10,'best_epoch':6,'patience':4,'optimizer_state_dict':{'state':{},'param_groups':[]}}
+    torch.save(latest,tmp_path/'last_adaptation.pt')
+    (tmp_path/'history.jsonl').write_text(json.dumps({k:latest[k] for k in ('epoch','source_dev','best_epoch','patience')})+'\n')
+    selected,state,record=runner.load_epoch_recovery(tmp_path,config)
+    assert selected['epoch']==6 and state['epoch']==10 and record['first_epoch']==11
+    assert record['optimizer_restored'] and record['patience_restored']==4 and not record['exact_training_resume']
+    with pytest.raises(ValueError,match='recipe'):runner.load_epoch_recovery(tmp_path,{**config,'seed':1235})
+    latest['patience']=0;torch.save(latest,tmp_path/'last_adaptation.pt')
+    with pytest.raises(ValueError,match='history'):runner.load_epoch_recovery(tmp_path,config)
+    latest['run_config_sha256']='wrong';torch.save(latest,tmp_path/'last_adaptation.pt')
+    with pytest.raises(ValueError,match='bound'):runner.load_epoch_recovery(tmp_path,config)
+    (tmp_path/'complete.json').write_text('{}')
+    with pytest.raises(ValueError,match='Completed'):runner.load_epoch_recovery(tmp_path,config)
 
 
 @pytest.mark.parametrize('extra',[['--held-domain','asv2019'],['--mode','probe']])
