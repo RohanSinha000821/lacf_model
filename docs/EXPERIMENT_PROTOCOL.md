@@ -1,3 +1,242 @@
+## SSL-last F2 training and F1 evaluation (13 November 2026)
+
+Owner authorizes fresh `ssl_gating_last` F2 seed1234 with the exact F1 last-block
+recipe, plus native P1 evaluation of completed F1 selected epoch10. Train F2 on
+ASV2019/ASV5/SpeechFake source train, select on their source development macro
+EER; CFAD target remains unopened. Keep only block23/backend trainable,
+15241090parameters, batch24/BF16-FP32/Adam3e-6/wd1e-4/constant/CE+CKA1,
+20s training/full batch1development,max10/patience3,workers8/4/prefetch2.
+Validate source readiness/pinned local weights and discarded source GPU
+stress/reload before fresh initialization. New `train_last_fold.py` preserves
+the original guarded F1 trainer/shared math. No resume/retry/overwrite.
+
+`evaluate_last.py` verifies F1 checkpoint/config/completion, canonical source
+exports/frozen calibration, and fresh first/tail plus long source parity before
+SpeechFake test. Reuse training's completed full source reload; do not repeat
+all source encoder scoring. Retain full recordings/batch1/BF16-FP32 score
+subtraction, all shared raw and separately transductive1/5/10% metrics and
+1000conditionalbootstrap(seed2026). Training/evaluation CUDA allocator budgets
+are19/8GiB (live free requirements21/10GiB),CPUthreads2each,evaluationworkers4.
+Preserve active1GiB cached MoE queue and all its guarded source bytes.
+No F2/other targets, other folds/seeds, new recipe selection or publication.
+
+## Reduced LACF-MoE core ablations (13 November 2026)
+
+Owner authorizes the reduced cached-feature source-training study with sequential
+MoE-A0–A6 IDs; these do not replace the original plan's A0–A10 definitions.
+A0 reuses the completed main three-expert reference after exact full-source
+reload. A1 CLAP embedding-only; A2 MoE WavLM/CLAP embedding concat; A3 WavLM
+anchor probabilities only; A4 plain13-layer averaging/full relations; A5 layer
+MoE plus relation-fusion MoE; A6 same fusion experts with global learned weights.
+Each fresh A1–A6 trains F1→F2→F3→F4 at seed1234 (24fits), matching the main
+comparison. Additional B1–B6 remain definitions only; existing three-seed inner
+diagnostic plans are not changed. Full definitions, parameter counts, capacity
+caveats and proposed-ID mapping are in
+[the ablation guide](../scripts/experiments/lacf_moe_ablations/README.md).
+
+Keep both applicable encoders frozen/cached, original3+5prototypes/temperature,
+fixed10s source views, domain/class sampler/epoch size,batch132/accum1,
+AdamW3e-4/wd1e-4/constant,BF16-sensitiveFP32/reference-rounded logits,BCEonly,
+max30/patience5 and strict macro source EER/ties earlier. A5/A6 add three
+residual35→64→35 experts after the original35Drelations, before the unchanged
+head; their routing/capacity contrast differs by175parameters. A0/A4 change
+both layer processing and capacity; A0/A2 compare complete readout systems.
+
+Validate source cache membership/payloads once; fit only the current fold's
+three source domains. Discard each source-only preflight model and start final
+weights fresh. Full fresh source reload/exact calibration/artifact checks gate
+completion and advancement. Stop on failure, no retry/resume/overwrite. All new
+files/outputs live in experiments/lacf_moe_ablations, preserving existing jobs,
+source guards, artifacts and caches. No target evaluation, additional variants,
+new seeds, downloads, feature regeneration or publication is queued. Any future
+target evaluation retains all raw/separate transductive1/5/10% shared metrics;
+the study remains exploratory after earlier target exposure. No target tuning.
+
+## Adapted TF2 F1 native evaluation (owner request, 13 November 2026)
+
+Owner authorizes evaluating the completed source-selected adapted full-F1 TF2
+seed1234 on SpeechFake test. Queue behind its CURRENT final source reload/export
+and actual producer exit_status.json; do not interrupt or repeat that full180194
+source-audio verification. Require completion, canonical source IDs/labels/counts,
+all score/checkpoint/config hashes, exact frozen calibration and pinned sparse
+checkpoint reconstruction. A fresh evaluator first/tail source-batch bit-exact
+check and actual22×10s source inference/memory check precede target access.
+Bound the selected config/checkpoint identity at launch. If any gate fails,
+stop without retries, changed precision/batch, skipping recordings or target access.
+
+Use existing official local-only pinned bases plus ALL selected WavLM Q/V LoRA,
+CLAP final-stage/projection and TF2 weights,20,049,185trainables in the trained
+model. Both audio branches are recomputed; frozen-feature caches cannot stand
+in for adapted encoders. Preserve native-unpadded WavLM grouping, centered common
+up-to10s views/CLAP repeatpad,BF16-sensitiveFP32,batch22/workers4/prefetch2,source
+thresholds and recovery provenance. Evaluation uses7GiB allocator cap only after
+at least10GiB live free memory; preserve all other jobs. Report shared EER/AUROC,
+raw and separate transductive z-score1/5/10% APCER/BPCER/ACER with1000conditional
+bootstrap(seed2026); no target tuning. New evaluator through existing experiment
+compatibility path scripts/experiments/token_fusion/evaluate_adapted.py; output
+outputs/experiments/token_fusion/evaluations/tf2_adapted/f1/1234/. Sparse checkpoint
+and original completion retain their actual names/format; do not fabricate a
+standalone full-model checkpoint or training completion. No further training,
+other folds/models, external evaluation, downloads or publication authorized.
+
+## Four-expert live-memory scheduling correction (13 November 2026)
+
+Owner points out free GPU memory while the four-expert queue is idle. Live
+inspection confirms TF2 finished training at epoch17/patience5 and is verifying
+its selected checkpoint, releasing optimizer memory: about8.6GiB is free while
+SSL and the main MoE evaluation remain active. Replace ONLY the idle coordinator's
+obsolete whole-encoder-process-exit wait with a live free-memory gate >=4GiB.
+Preserve/terminate only that waiting coordinator (no children or started fits),
+archive its launch records/source snapshot, then issue a fresh guarded F3→F4
+continuation. No other process, source, model or recipe change. Existing trainer
+retains1GiB allocator cap and source validation; evaluations retain their actual
+completed-target-cache dependency and512MiB head cap. Preserve all F1/F2 runs,
+calibration fix and failed history. New source/header fingerprints must explicitly
+record this scheduler-only revision; do not weaken active job source guards or
+create a fake producer completion. This supersedes the preceding whole-process
+wait only. No resume/overwrite/retry of any fitted model, target tuning or push.
+
+## Four-expert missing-fold completion (12 November 2026)
+
+Owner explicitly requests fixing the stopped four-expert queue and completing
+its missing folds without disturbing active processes. The failure was only
+canonical CSV reduction order at F2 calibration; the reviewed sorted-ID fix
+passes exact existing F1/F2 calibration and preserves all weights/results. Keep
+F1/F2 and failed historical launch records unchanged. A fresh launch_f3_f4
+runs the UNCHANGED trainer with --folds f3 f4, fresh seed1234 models, existing
+four-expert cached-feature recipe and per-fold finite-update/full-source reload/
+export/calibration gates. Do not resume/retrain F1/F2 or relax equality.
+
+Only ~2GiB GPU headroom exists during active three-expert encoder evaluation.
+The new continuation waits for existing four-expert F2 evaluation to succeed
+and the heavy main evaluation process to exit before fresh cached F3→F4 fits.
+No active job/source edit, stop, signal or priority change. Then evaluate F3→F4
+using completed main-evaluation target caches, hash/crop/revision verification,
+fresh full four-expert source reload and frozen source calibration. Preserve
+shared raw/transductive1%,5%,10%,1000bootstrap(seed2026), no target tuning. Training
+uses existing1GiB allocator cap; cached head evaluation512MiB. New coordinator
+scripts/experiments/layer_fusion/complete_four_experts.py; records under training
+and evaluation families' launch_f3_f4/. Missing/failed producer evidence stops
+the dependent stage; no automatic retry, overwrite, recipe change or publication.
+All work stays under experiments. This supersedes the previous F3/F4 training
+hold for this explicit continuation only; external sets/other models stay held.
+
+## Four-expert completed-fold evaluation continuation (12 November 2026)
+
+Owner requests evaluation of the four-expert experiment across all completed
+folds. Live inspection confirms ONLY F1/F2 trained: the old queue failed at F2
+calibration verification before F3/F4. The reviewed sorted-ID verifier fix exists;
+no F3/F4 four-expert training has subsequently run. Preserve F1's completed
+metrics and failed historical queue records. Start F2 only in a fresh guarded
+launch, using the main three-expert evaluation's completed CFAD frozen target
+feature cache after its producer completion/crop/revision/hash checks. Run full
+fresh four-expert source-score reload and exact calibration checks before target
+scoring. Keep original four-expert model/thresholds/BF16-FP32/head132 and shared
+raw/transductive1%,5%,10% metrics/1000bootstrap(seed2026). No encoder reload,
+new training, F3/F4 placeholder results, automatic retries/overwrites, design
+changes or publication. The cached head uses a512MiB allocator cap; preserve
+active three-expert evaluation, SSL-last and TF2 source guards. New entry point:
+scripts/experiments/layer_fusion/evaluate_four_experts_cached.py. Launch records:
+outputs/experiments/layer_fusion/evaluations/lacf_layer_moe4/launch_cached_f2/.
+F3/F4 evaluation remains blocked on absent training; report this explicitly.
+
+## Main three-expert LACF-MoE evaluation (12 November 2026)
+
+Owner explicitly authorizes native P1 evaluation of the completed main THREE-expert
+LACF-MoE F1–F4, seed1234. This overrides older target holds for these four fixed
+checkpoints only, including F4. Verify all source completions, checkpoint hashes,
+canonical source calibration and execution guards. Preserve and link the completed
+original F1 evaluation; fresh F2→F3→F4 evaluations require full bit-exact cached
+source reload before target access. Reuse the existing source-validated batch32
+WavLM/batch64 CLAP BF16 extractor, centered up-to10s/native-unpadded views and
+head batch132. A source-only maximum-input encoder/memory check precedes each
+new target extraction; stop on failure without precision/batch fallback, retry,
+overwrite or any job interruption. Keep a7GiB allocator budget alongside preserved
+SSL-last/TF2; verify live headroom. Retain target frozen features for reuse.
+Report shared EER/AUROC, raw and separately transductive z-score APCER/BPCER/ACER
+at ALL source1%,5%,10% settings with1000 conditional bootstrap resamples(seed2026).
+No architecture/concept/loss/calibration changes, target tuning, external-set
+access, ablations, further training or automatic publication. Main evaluator and
+outputs: scripts/lacf_moe/evaluate.py and outputs/lacf_moe/evaluations/. Earlier
+four-expert queues remain stopped and their artifacts unchanged. This remains
+exploratory after prior target exposure, not independent method selection.
+
+## SSL-gating last-block F1 (owner decision, 11 November 2026)
+
+Run family `ssl_gating_last` trains only XLS-R Transformer block23 plus the full
+gating backend; frontend/blocks0–22 stay frozen. Retain earlier partial-variant
+batch24/BF16-FP32,Adam3e-6/wd1e-4/constantLR,weightedCE+CKA1,20s random training
+cap/full-recording batch-one dev,max10/patience3/source macro EER,ties earlier,
+seed1234,workers8/4,prefetch2 and stochastic prefix train execution. This is
+another owner-approved adaptation of the full-fine-tuning paper, not an exact
+paper reproduction or replacement of completed full/top4 results. Fresh pinned
+official XLS-R and fresh backend; source checks discard their updates. F1 only,
+no target evaluation or automatic later folds. Preserve parallel TF2/LACF-MoE.
+
+## Main three-expert LACF-MoE (owner decision, 11 November 2026)
+
+Use `src/audio_deepfake_detection/lacf_moe/`, `scripts/lacf_moe/`,
+`tests/lacf_moe/` and `outputs/lacf_moe/` for the main working model. Preserve
+the completed original F1 model and train fresh F2→F3→F4, seed1234 only, using
+the same cached frozen13-layer WavLM/CLAP views. Original three experts cover
+R0–R3,R4–R7,R8–R12 with recording-dependent routing; original3+5 concepts,
+temperature0.07,adapter/full35-D head and detection BCE only:967338trainables.
+Batch132/accum1,AdamW3e-4/wd1e-4/constantLR,BF16 with sensitiveFP32,max30/
+patience5,domain/class replacement sampling,strict equal-domain source-dev EER
+selection/ties earlier remain fixed. Each fold starts fresh; source score reload,
+canonical exports and exact sorted-ID calibration verification gate advancement.
+
+Cache policy is identical to original MoE F1: centered plus two fixed random
+up-to10s training views and centered development, native unpadded encoders.
+Full F1 reload must verify the main-folder model before using its preserved
+result. This is distinct from original live-crop LACF and the four-expert control.
+No new target evaluation or future ablation queue is authorized by this training
+request. The main direction remains exploratory after prior target exposure;
+evaluation results cannot establish independent method selection. See
+[the main-model guide](../scripts/lacf_moe/README.md).
+
+## Four-expert LACF F1–F4 extension (owner decision, 11 November 2026)
+
+## Four-expert LACF evaluation authorized (11 November 2026)
+
+Owner requests evaluation of all four-expert folds if training is complete.
+Evaluate seed1234 F1–F4 sequentially only after each selected checkpoint,
+completion, canonical source scores/calibration and full fresh source reload
+verify. F1 may reuse the preserved all-layer SpeechFake features; remaining
+folds extract centered up-to10s native-unpadded WavLM13-layer and CLAP features
+with the existing batch32/64 BF16 extractor after a source-only maximum-input
+check. Preserve/cache the resulting features. Keep the four-expert architecture,
+original3+5 prototypes,detectionBCE-only recipe and source thresholds fixed.
+Use shared raw and separately transductive z-score metrics, all1/5/10% settings
+and1000 conditional bootstrap resamples(seed2026). This overrides previous
+four-expert target holds only; no redesign, target-guided selection, other
+models/external evaluations, retries, overwrites, publication or training changes.
+Implementation and outputs remain in experiments. Preserve active TF2/primary
+LACFF4/MoE4 training and source guards. Exact archived F1 trainer plus reviewed
+fold-only extension reconcile its historical trainer hash; all model/scorer
+hashes must still match. Stop the evaluation queue on any failure.
+
+Preserve the completed four-expert fullF1 seed1234 source-selected fit and run
+fresh F2→F3→F4 with the same four groups/router, original text bank and detection
+BCE-only cached-feature recipe. Each fold uses only its canonical source train/dev
+for fitting, selection and calibration; verify per-fold source updates/reload and
+completion before advancing. This is the same exploratory four-expert family,
+not additional seeds, original LACF or inner-source rotations. Targets remain held.
+See [the layer-fusion guide](LAYER_FUSION_EXPERIMENTS.md).
+
+## Cached primary LACF F4 (owner decision, 11 November 2026)
+
+F4 now uses the existing source-only frozen-feature cache with the original
+last-layer LACF backend, original3+5 concept bank and all three losses. Seed1234,
+batch132, optimizer/precision/selection remain unchanged. Centered+two fixed random
+native-unpadded training views replace fresh random padded training inputs; retain
+batch-one centered source-development head scoring. This is a disclosed F4
+execution/recipe difference from original F1–F3, not identical reproduction.
+The owner retains the main LACF name/output family. Preserve the stopped live F4
+attempt separately; start fresh after source/cache/update/reload gates. See
+[the cached-F4 guide](../scripts/experiments/lacf_cached/README.md). No target
+evaluation or later MoE launch follows from this training authorization.
+
 ## Frozen cached-CLAP TF2 F1 priority (9 November 2026)
 
 Owner stops partial SSL F2, preserving its snapshot/logs, and authorizes a fresh
@@ -1489,3 +1728,72 @@ remain unperformed gates. Candidate physical22/workers8/cap10GiB are inherited,
 not proven safe alongside both current jobs. Future outputs use the descriptive
 family outputs/experiments/tf2_frozen_clap/f1/seed_1234; old folders stay intact.
 The README in scripts/experiments/tf2_frozen_clap gives code/tests and gates.
+## Fully frozen TF2 F1–F4 continuation (13 November 2026)
+
+The owner requests the original frozen-encoder TF2 on all four canonical folds,
+not either encoder-adaptation variant. Preserve original F1 seed1234 and train
+fresh F2→F3→F4 at seed1234 to match the current MoE comparison. Original F1's
+three-seed mean target EER15.26% is distinct from seed1234's16.13%; no target
+performance selects a seed, recipe or checkpoint. The new family is
+`outputs/experiments/token_fusion/tf2_frozen/`, with F1 linked to its unchanged
+historical run. Original F1 seeds1235/1236 remain preserved outside this
+single-seed continuation; do not aggregate mismatched seed sets.
+
+Reuse the exact original `TokenFusion('TF2')` and fitting/export code: frozen
+cached WavLM Base+13×768 vectors, shared768→512→512 adapter, one512-D CLAP
+token, learned layer/type identities and CLS (15tokens), two width512/eight-head
+pre-LN Transformer blocks/FFN1024, CLS512→64→16→1 classifier,4,907,745trainables.
+Detection BCE only; no text concepts, semantic/JS losses or encoder gradients.
+Sampling stays equal domain/class mass with replacement, one utterance-count
+epoch and uniformly selected center/two fixed random10s views. Development
+uses centered native-unpadded cached features and head batch132. Retain
+batch132/accum1,AdamWLR3e-4/wd1e-4/constant,BF16-sensitiveFP32,max30/patience5,
+strict equal-domain macro source-dev EER/ties earlier. Source-only calibration
+and labels0=bona-fide/1=spoof remain unchanged.
+
+The isolated sequential entry point `scripts/experiments/token_fusion/train_all_folds.py`
+reuses the original F1 training functions with local per-fold bindings, preserving
+their bytes and all running-job guards. Validate source-cache membership/labels/
+payload hashes once; pass only the current fold's six source train/dev partitions
+to fitting. Full F1 fresh score reload verifies historical reuse. Every new fold
+has discarded finite-update/timing/full-source fresh reload validation, fresh
+initialization, final selected-checkpoint reload and exact canonical calibration
+before queue advancement. No automatic retry/resume/overwrite.
+
+Live resource gates require array RAM plus12GiB reserve and at least5GiB GPU
+headroom, followed by a4GiB allocator cap/2CPUthreads/featureworkers0. Cache
+verification/loading time is separate from measured cached training time.
+Preserve other jobs; do not infer GPU readiness from CPU tests. This authorizes
+source training only, no target evaluation/downloads/publication. Prior target
+exposure makes the comparison exploratory, not independent method selection.
+## Fully frozen TF2 F2–F4 native P1 evaluation (13 November 2026)
+
+The owner authorizes seed1234 evaluation of the completed fully frozen TF2
+F2→F3→F4 checkpoints; F1's completed results stay unchanged. This supersedes
+the earlier source-only hold for these three fixed runs, not other variants or
+seeds. Source-selected epochs and original calibration remain frozen. No target
+result changes architecture, losses, prompts, padding, precision or thresholds.
+
+Use the existing completed main LACF-MoE frozen target caches for CFAD unseen,
+ASVspoof5 eval and ASV2019 LA eval. Both branches use the same pinned frozen
+encoders, centered up-to10s/native-unpadded input policy and BF16 feature
+extraction as the TF2 source cache. Require original cache header identities,
+canonical source IDs/labels, checkpoint/config/score/calibration hashes and a
+fresh bit-exact full source-dev reload BEFORE target producer verification or
+scoring. Producer completion/source proof/checkpoint/score/metrics hashes,
+canonical target membership, revisions, crop metadata, precision and every
+feature payload must verify. No encoders are loaded or executed and no target
+feature cache is duplicated. Only current TF2 head inference is performed.
+
+The isolated entry point is `scripts/experiments/token_fusion/evaluate_frozen.py`;
+results are `outputs/experiments/token_fusion/evaluations/tf2_frozen/{fold}/1234/`
+with queue records/logs under `launch/`. Keep original head batch132, scalar
+spoof-logit direction, BF16-sensitiveFP32 and shared EER/AUROC plus raw and
+separately transductive z-score1/5/10% APCER/BPCER/ACER. Conditional1000 class-
+stratified bootstrap(seed2026) retains fixed source calibration/normalization.
+Use1GiB head allocator cap with2GiB live free/2CPUthreads/source partitions
+loaded one at a time. Preserve existing SSL/outputs/guards; stop on failure,
+no overwrite/retry/resume/download/publication. Keep original training metrics
+as `source_metrics.json`, explicitly documenting that the copied training
+completion's metrics hash binds that file. These are single-seed exploratory
+comparisons after previous target exposure, not independent method selection.

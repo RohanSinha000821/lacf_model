@@ -2,6 +2,9 @@
 
 Experiment navigation and temporary live-job compatibility paths: [experiment layout](EXPERIMENTS_LAYOUT.md).
 
+Reduced full-fold LACF-MoE study: [core A0–A6 and additional B1–B6](../scripts/experiments/lacf_moe_ablations/README.md).
+The core cached source-training queue is authorized; additional controls and new target evaluation stay held.
+
 ## Separate layer-fusion comparison
 
 [LAYER_FUSION_EXPERIMENTS.md](LAYER_FUSION_EXPERIMENTS.md) defines the isolated

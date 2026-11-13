@@ -559,6 +559,17 @@ authorize a rerun: source scores are preserved, and prior evaluation artifacts
 block automatic retry. Partial score recovery and input/precision fallback are
 not implemented. Completed results retain their original evaluator hashes.
 
+## LACF-MoE: main working model
+
+The original three-expert model now lives in `src/audio_deepfake_detection/lacf_moe/`,
+with its entry point in `scripts/lacf_moe/` and tests in `tests/lacf_moe/`.
+See [the model and training guide](scripts/lacf_moe/README.md).
+Outputs are grouped in `outputs/lacf_moe/<fold>/1234/`: completed original F1
+is preserved through a link; F2–F4 start fresh from the same cached source-feature
+recipe. The original concepts, three groups, full relation head and detection
+BCE remain fixed. This is distinct from the older primary model below and the
+four-expert control. Target evaluation and later ablations are separate steps.
+
 ## LACF: primary frozen implementation
 
 LACF lives separately from the SOTA adapters under

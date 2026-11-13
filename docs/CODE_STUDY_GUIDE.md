@@ -726,3 +726,21 @@ The [SAM recipe](EXPERIMENT_PROTOCOL.md#sam-aasist-f1-recipe-owner-decision-9-no
 records RawBoost off, random64600 training/first64600 validation, batch24/FP32,
 source-only rules and the unchanged family seed plan. Preserve snapshots as
 intermediate artifacts; they are not exact mid-epoch resume or completed runs.
+# SSL-last F2 and F1 native evaluation
+
+`scripts/ssl_gating/train_last_fold.py --fold f2` reuses the unchanged last-block
+model, loaders and partial training/scoring math. It checks fresh canonical F2
+source readiness, runs discarded source GPU stress/reload, then initializes fresh
+XLS-R/backend weights for seed1234. Only block23/backend train; config, history,
+snapshots and final source exports/completion go to `outputs/ssl_gating_last/f2/1234/`.
+The guarded launcher/logs are in its sibling `launch/`; earlier F1 code stays intact.
+
+`scripts/ssl_gating/evaluate_last.py` evaluates only completed F1 seed1234.
+It verifies the last-block recipe and original source artifacts, reuses shared
+`evaluate_partial.py` source-calibration/parity/native-scoring helpers, checks
+fresh first/tail and long source scores, then opens SpeechFake test. It appends
+source-validation/target scores/metrics/manifest/evaluation completion to
+`outputs/ssl_gating_last/f1/1234/`, preserving all training files. Its launch and
+live log are under `outputs/ssl_gating_last/f1/evaluation/`. Shared raw/separate
+transductive metrics and1000conditionalbootstrap remain unchanged. No F2 target
+evaluation is queued. Both jobs retain live memory/source guards alongside MoE.
