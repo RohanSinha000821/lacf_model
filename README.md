@@ -18,13 +18,31 @@ PYTHONPATH=src:. python scripts/sam_aasist/train.py --fold f1 --seed 1234 \
   --prefetch-factor 2 --cpu-threads 2
 ```
 
-Only the requested fresh F1 seed1234 launch is authorized. Outputs go to
-`outputs/sam_aasist/f1/1234`; existing run directories are refused. Batch24,
+Outputs go to `outputs/sam_aasist/<fold>/<seed>`; existing run directories are refused. Batch24,
 FP32, RawBoost off, source-only selection and author pooling0.5 are fixed.
 Best/last checkpoints and periodic snapshots preserve unperturbed weights;
 training resume is not implemented. A completion marker requires full selected
 checkpoint source reload/export/calibration. Target evaluation requires a
 separate owner request. See the local handoff for actual readiness/live status.
+
+The owner subsequently authorized fresh F2 seed1234 and native F1 evaluation
+(14 November). F2 uses `--fold f2 --num-workers 24 --eval-workers 8
+--prefetch-factor 4 --cpu-threads 2`; pinned memory and persistent workers are
+already enabled. Batch24/FP32 and the scientific recipe remain fixed; no GPU
+allocator cap is configured. More workers did not measurably improve the bounded
+source benchmark. Evaluate a completed, separately authorized run with:
+
+```bash
+PYTHONPATH=src:. python scripts/sam_aasist/evaluate.py --fold f1 --seed 1234 \
+  --source-data-root /mnt/drive/audio-deepfake-cache \
+  --target-data-root /mnt/drive/audio-deepfake-cache \
+  --num-workers 8 --prefetch-factor 4 --cpu-threads 2
+```
+
+The SAM exporter checks completed source exports/calibration and fresh source
+parity before target access. It uses first64600/repeat-short batch-one FP32
+scoring and shared P1 metrics/conditional bootstrap intervals. Existing
+evaluation artifacts are preserved and block automatic restart.
 
 ## Isolated TF2 token-fusion adaptation (2026-10-31)
 
@@ -172,6 +190,11 @@ python -u scripts/wavlm/train.py --fold f1 --seed 1234 --batch-size 96 --run-nam
 # Owner-approved completed WavLM fold; no target-guided tuning:
 python -u scripts/wavlm/evaluate.py --fold f1 --seed 1234 --run-name wavlm_bs96 --source-data-root /mnt/drive/audio-deepfake-cache --target-data-root /mnt/salt/datasets/audio-deepfake --confirm-run-frozen
 ```
+
+The owner-authorized F4 adaptation trains only the final encoder block plus
+WA/classifier (7,089,955 parameters); original F1–F3 used full fine-tuning.
+The shared `wavlm_bs96` name does not imply identical adaptation scopes.
+See [F4 settings and launch safeguards](scripts/wavlm/F4_LAST_BLOCK.md).
 
 Use seed **1234 only** for WavLM across `f1`, `f2`, `f3`, `f4`, per the owner's
 2026-10-05 compute-budget decision. Do not schedule WavLM seeds 2345 or 3456.

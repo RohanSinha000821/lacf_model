@@ -721,6 +721,14 @@ activation checkpointing or precision change is implemented by this adaptation.
 - `tests/sota/sam_aasist/`: independent optimizer mathematics, BatchNorm,
   architecture/filter-cache parity, selection/isolation, checkpoint failure and
   fresh-source completion tests. Run with CUDA hidden; GPU readiness is separate.
+- `scripts/sam_aasist/evaluate.py`: checks SAM-specific architecture/configuration,
+  selected-checkpoint and completion hashes, canonical source membership,
+  byte-bound full source exports and exact frozen calibration. Fresh selected
+  model scores must match bounded source samples exactly before target access.
+  Reuses AASIST's fixed64600 batch-one score writer and shared P1 metrics;
+  binds source validation, target CSV, manifest and metrics in a completion
+  record. Existing evaluation artifacts block automatic retry. The original
+  AASIST checkpoint verifier cannot be used for SAM's different pooling/config.
 
 The [SAM recipe](EXPERIMENT_PROTOCOL.md#sam-aasist-f1-recipe-owner-decision-9-november-2026)
 records RawBoost off, random64600 training/first64600 validation, batch24/FP32,
@@ -744,3 +752,16 @@ source-validation/target scores/metrics/manifest/evaluation completion to
 live log are under `outputs/ssl_gating_last/f1/evaluation/`. Shared raw/separate
 transductive metrics and1000conditionalbootstrap remain unchanged. No F2 target
 evaluation is queued. Both jobs retain live memory/source guards alongside MoE.
+
+
+## WavLM F4 last-block path
+
+The existing `scripts/wavlm/train.py` supports the owner-scoped F4-only
+`--last-block-only` option and requires the original source-validation record.
+`sota/wavlm_wa_last.py` freezes the frontend/first11blocks; block11 and the
+unchanged weighted-average/classifier train. `last_block_support.py` binds
+preparation/runtime identities, collects batch-one source scores and verifies
+fresh selected-model full-source parity/export/calibration before completion.
+The standard evaluator carries the recorded adaptation scope into its report.
+See [F4 details](../scripts/wavlm/F4_LAST_BLOCK.md); these entry points do not
+authorize a launch or rerun. Active source bytes are preserved during sync.

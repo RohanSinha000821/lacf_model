@@ -214,6 +214,7 @@ def main() -> None:
         "completed_run_source_validation_required": True,
         "target_access_policy": "independent_completed_runs_owner_2026-10-12",
         "gpu_allocator_limit_gib": args.gpu_memory_limit_gib,
+        **({"adaptation": config["adaptation"]} if "adaptation" in config else {}),
     })
     temporary = run_dir / "metrics.json.tmp"
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

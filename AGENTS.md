@@ -1,5 +1,176 @@
 # Project working instructions
 
+## WavLM-WA F4 last-block training authorized (16 November 2026)
+
+Owner now requests starting the prepared fresh F4 seed1234 run. This overrides
+preparation-only hold for this final fit only. Use scripts/wavlm/train_f4_last.sh
+and the passed current source-validation record, pinned official local Base,
+7,089,955trainables (block11+WA weights/classifier), unchanged batch96/4s/BF16/
+Adam2e-5+5e-3/ExponentialLR.95/CE9:1/100max/patience5/16train4devworkers/prefetch2.
+Train ASV5/CFAD/SpeechFake only; source macroEER selects, exact full-source
+selected-score reload/export/calibration/completion gates final success.
+14GiB allocator cap after16GiB livefree. Fresh official initialization; no
+probe/other-fold weights, resume/retry/overwrite or automatic target evaluation.
+Keep output outputs/wavlm_bs96/f4/1234/ and WavLM-WA name, explicitly disclosing
+last-block F4 vs full-FT F1–F3 in all saved configs/reports. Preserve running
+SSL F3 and both MoE C-loss queues/source guards. No other fit, target/external
+access, recipe change, download, commit or push.
+
+## WavLM-WA F4 last-block preparation only (16 November 2026)
+
+Owner requests preparing F4 with only final WavLM Transformer block/backend
+trainable, using the existing wavlm_bs96 family/f4/1234 path. Do NOT launch
+final training. Source-only CPU and discarded bounded GPU memory/reload checks
+are within preparation; no target access. Keep the existing seed1234,batch96,
+4s train/full batch1dev,CE9:1,Adam2e-5encoder/5e-3backend,ExponentialLR.95,
+max100/patience5,workers16/4/prefetch2/source macro EER/ties earlier recipe.
+Pinned official local WavLM Base efa81aae7ff777e464159e0f877d54eac5b84f81;
+train block11+13layerweights+classifier:7089955trainable/94383487total.
+Prefix parameters frozen; forced frontend input gradients disabled, existing
+stochastic prefix behavior retained. F1–F3 are full-FT; disclose F4's last-block
+scope in config/checkpoint/completion/evaluation despite shared name/folder.
+
+New wavlm_wa_last.py and source-only support/preparation/launch files extend
+existing trainer via an explicit prepared F4-only option. Preserve all active
+SSL/MoE guards/jobs. Future training requires matching proof and fresh official
+initialization, selected-checkpoint full-source score bit-exact reload/export/
+calibration/completion before any later separately authorized evaluation.
+Measured batch96train reserved7.61GiB; full129.75s source reserved10.28GiB;
+14GiB allocator cap after16GiB live free. Representative, not exhaustive length
+bound. Preparation passed26CPU tests and real source stress/reload checks.
+See scripts/wavlm/F4_LAST_BLOCK.md. No final fit/evaluation, download or push.
+
+## LACF-MoE C1–C3 loss ablations authorized (16 November 2026)
+
+Owner requests BCE plus semantic alone(C1), bona-fide JS alone(C2), and both(C3).
+Reuse original weights0.25semantic/0.10BFJS and unchanged main THREE-expert
+MoE/35-D relations/3+5prototypes/967338params. Current IDs are scoped to losses,
+not old C-layer diagnostics. Reuse verified existing BCE-only reference asC0;
+12fresh F1–F4 seed1234 source fits and their12fixed-checkpoint native P1
+evaluations. Same cached features/views/initialization/RNG/sampling/batch132/
+AdamW3e-4/wd1e-4/constant/BF16-sensitiveFP32/max30/patience5/source macroEER.
+No architecture change, extra controls/seeds, loss-weight/target-guided tuning.
+
+New loss_model.py/train_losses.py/verify_losses.py/evaluate_losses.py stay in
+experiments/lacf_moe_ablations; existing main/core/SOTA source bytes stay fixed.
+Explicit process-local registries reuse core fitter/preflight/scorer/export.
+Loss-specific completion verifier retains strict artifact/canonical source and
+calibration gates, checks actual objective and whole model config. Discard each
+real-source GPU finite-update/full-source reload probe before fresh fit. Require
+selected full-source bit-exact reload/export/exact calibration and producer's
+verified queue-status completion before evaluation; fresh full source check before
+verified matching cached target reuse. No encoders executed/downloaded. Preserve
+BF16 logits,raw/separate transductive1/5/10errors/EER/AUROC/1000bootstrapseed2026.
+
+Outputs under experiments/lacf_moe_ablations/losses/, evaluation siblings in its
+evaluations/. Eachqueue1GiBcap/2CPUthreads/featureworkers0; train bank requires
+75GiB available RAM/2GiB GPUfree. Preserve active SSL F3 and previous artifacts.
+Stop on failure, no auto retry/resume/overwrite, external data or publication.
+See scripts/experiments/lacf_moe_ablations/LOSSES.md for definitions and caveats.
+
+## SSL-last F2 native evaluation authorized (16 November 2026)
+
+Owner requests evaluation of completed ssl_gating_last F2 seed1234, selected
+epoch7/source macro EER5.7544199%, final10. This supersedes the earlier F2
+target hold for this fixed checkpoint only. New evaluate_last_f2.py preserves
+guarded F1/F3/shared files and reuses the same source/config/parity/scoring
+helpers. Require successful producer exit, checkpoint/config/source-score/
+calibration hashes, canonical source labels/counts/exact calibration, and fresh
+first/tail plus129.75475s SpeechFake source score parity before CFAD unseen.
+Full unpadded batch1/BF16-sensitiveFP32,4workers/prefetch2/CPU2,8GiB cap after
+10GiB live free; no precision/input fallback. Retain EER/AUROC and raw/separate
+transductive z-score APCER/BPCER/ACER at1%,5%,10%,1000conditional bootstraps
+seed2026. Append evaluation artifacts to F2/1234 with launch proofs in
+outputs/ssl_gating_last/f2/evaluation/. Preserve running F3 and all other results.
+Stop on failure without automatic retry/resume/overwrite, other-fold/model or
+external evaluation, training changes, downloads, commit or push.
+
+## Additional MoE ablations B1–B6 authorized (14 November 2026)
+
+Owner requests completing the remaining predefined additional controls. Run
+B1–B6 on F1–F4 seed1234:24 fresh cached-feature source fits and their verified
+native P1 evaluations. This overrides earlier B-series holds only. Definitions,
+parameter counts, process-local reuse bindings and commands are in
+scripts/experiments/lacf_moe_ablations/ADDITIONAL.md. No new controls or seeds.
+Keep original core scientific recipe, prototypes, views, score precision,
+source selection/calibration and shared raw/separate transductive reporting.
+
+New additional_model.py, train_additional.py and evaluate_additional.py leave
+all guarded core/main/SOTA files unchanged. Reuse existing fitting/evaluation
+functions through scoped model-registry bindings in NEW PROCESSES only; record
+and test those bindings, never mutate another process or original output.
+Separate outputs under experiments/lacf_moe_ablations/additional/.
+
+Discard source-only preflight weights; fresh fits, exact selected full-source
+reload/canonical calibration/completion gate advancement. Evaluate only after
+producer's verified queue-status entry, binding that checkpoint/completion;
+repeat fresh source checks before verified cached target access. No target
+feedback selects a model/recipe. Preserve all extraction/BF16/seed caveats.
+Each queue1GiB GPUcap/2CPUthreads/featureworkers0; source-bank load requires
+75GiB availableRAM and2GiB GPUfree. Wait rather than interfere with jobs.
+Core evaluations/SSL F2 remain running; SSL F3 stays stopped/resumable.
+No automatic retry/resume/overwrite, encoder execution/download, external
+sets, further architecture, commit or push. Stop and preserve failures.
+
+## Original LACF F4 and MoE-ablation target evaluation (14 November 2026)
+
+Owner authorizes native P1 evaluation of completed original cached LACF F4
+and MoE-A1–A6 on F1–F4, seed1234 (24 evaluations). Reuse the already completed
+main three-expert A0 evaluations; additional B1–B6 remain held. This supersedes
+the earlier target hold only for these fixed checkpoints. No target-guided tuning.
+Preserve active SSL-last F2; SSL-last F3 is stopped at owner request with its
+recovery checkpoint intact and must not restart automatically.
+
+New evaluators stay in scripts/experiments/lacf_cached/ and
+scripts/experiments/lacf_moe_ablations/. Reuse verified matching existing target
+features, including the historical F1 format, without encoder execution/downloads.
+Before each target read, bind launch/checkpoint/completion/cache identities,
+verify canonical source exports and exact calibration, and freshly reproduce
+ALL selected source-development scores bit-exact. Keep original F4 head batch1
+and last WavLM layer/all three training losses; ablations retain their exact
+heads/batch132/detection-only recipe and original3+5 concepts. Do not rescore
+old models in a different precision. BF16-sensitiveFP32/source thresholds,
+raw and separately transductive z-score ALL1/5/10 APCER/BPCER/ACER,EER/AUROC,
+1000 conditional bootstraps(seed2026). Preserve historical extraction drift,
+BF16 rounding, target exposure and original-F4 recipe disclosures.
+
+Two guarded queues may share GPU with SSL F2, each capped1GiB with2CPUthreads,
+featureworkers0. Retain source-dev arrays only; do not duplicate audio/features.
+Stop on any failure; no retry/resume/overwrite, additional training/ablations,
+other target/external evaluation or automatic commit/push. Evaluation artifacts
+are new siblings, preserving every original training record. Originals under
+outputs/lacf10s_optimized_20261009/evaluations/f4/1234/; ablations under
+outputs/experiments/lacf_moe_ablations/evaluations/<variant>/<fold>/1234/.
+
+## Parallel resumable SSL-last F3 (14 November 2026)
+
+Owner requests fresh ssl_gating_last F3 alongside preserved F2, with recovery.
+New train_last_f3.py and sota/ssl_gating_resume.py leave all guarded F2/shared
+sources unchanged. Seed1234; ASV2019/CFAD/SpeechFake sources only, ASV5 target
+unopened. Same Last model/block23+backend/15241090params,batch24/BF16-FP32,
+Adam3e-6/wd1e-4/constant,CE+CKA1,20s random train/fullbatch1dev,max10/patience3,
+strict source macro EER/ties earlier,train8/dev4workers/prefetch2/CPUthreads2.
+
+Source GPU validation proves batch24/all24-layer stress fits a13GiB allocator
+cap with max_split_size_mb:128 and>=15GiB livefree, alongside F2. Deterministic
+algorithms and CUBLAS_WORKSPACE_CONFIG=:4096:8 give exact actual-source
+optimizer/RNG update replay and full129.75475s source reload. Expandable
+segments are unsupported here; preserve that failed probe and the earlier
+non-deterministic replay failure. No batch/precision/LR/architecture fallback.
+
+Fresh final weights start from pinned official XLS-R/fresh backend, discarding
+all source probes. Checkpoint model/optimizer/full selection/best state/loss
+sums/epoch stage/sampler+crop seeds/CPU,CUDA,NumPy,Python RNG every15min and at
+phase/epoch boundaries, atomic+fsync. Explicit --resume only, never automatic.
+Replay only unprocessed optimizer draws; repeat an interrupted dev pass without
+retraining a completed training phase. Per-draw crop RNG replaces legacy worker
+RNG assignment for reproducible views, preserving the uniform crop and sampler
+laws; disclose this execution difference. Current F2 is NOT retrofitted.
+Stop on failure; preserve incomplete temp/checkpoint/log evidence and refuse
+completed/foreign/config-mismatched recovery or simultaneous duplicate trainers.
+No F3 target/other-fold evaluation, extra seeds, downloads or publication.
+See docs/SSL_LAST_RECOVERY.md and F3 launch records for actual status.
+
 ## SSL-last F2 training and F1 evaluation (13 November 2026)
 
 Owner explicitly requests fresh ssl_gating_last F2 seed1234 training and native
@@ -630,3 +801,20 @@ reference originals, datasets and caches. Reconcile overlapping changes before
 publication, run CUDA-hidden offline CPU checks, then verify the shared commit,
 clean Git status and all active guards on both hosts. No experiment launch,
 training/evaluation restart, recipe change or output transfer follows from sync.
+
+## SAM F2 training and F1 evaluation authorized (14 November 2026)
+
+Owner requests fresh SAM-AASIST F2 seed1234 on SSH1 with source-only measured
+loader tuning, and native P1 evaluation of completed F1 seed1234. Preserve all
+scientific settings including batch24/FP32, pooling0.5,297866 fresh trainables,
+RawBoost off and two-pass SAM. Use24train/8dev workers/prefetch4, pinned and
+persistent memory loading/CPUthreads2. Owner's final clarification preserves
+batch size and requests no GPU memory cap; it supersedes the intermediate25GiB
+limit. Measure concurrent headroom before launch. F2 reads only ASV2019/ASV5/
+SpeechFake train/dev. F1 SpeechFake test opens only after selected-epoch14 and
+completion/config/runtime/source-export identities, exact frozen calibration
+and bounded fresh-source parity pass. Preserve fixed first64600/repeat-short
+batch-one FP32 scoring and shared P1 raw/transductive/bootstrap contracts.
+Reuse already full-reload-verified source exports without unnecessary complete
+source encoder reruns. Stop on failure; no automatic retry/resume, overwrite,
+other folds/seeds, F2 targets, target-guided tuning or publication is authorized.

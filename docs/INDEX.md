@@ -3,7 +3,13 @@
 Experiment navigation and temporary live-job compatibility paths: [experiment layout](EXPERIMENTS_LAYOUT.md).
 
 Reduced full-fold LACF-MoE study: [core A0–A6 and additional B1–B6](../scripts/experiments/lacf_moe_ablations/README.md).
-The core cached source-training queue is authorized; additional controls and new target evaluation stay held.
+Core training is complete. [Target evaluation instructions](../scripts/experiments/lacf_moe_ablations/EVALUATION.md) cover the 14 November authorization for A1–A6 on F1–F4; A0 evaluations are reused. The later [additional B1–B6 authorization](../scripts/experiments/lacf_moe_ablations/ADDITIONAL.md) covers their full-fold training and evaluation.
+
+SSL-last F3: [parallel execution and explicit recovery](SSL_LAST_RECOVERY.md).
+
+Loss controls C0–C3: [BCE with semantic / bona-fide JS / both](../scripts/experiments/lacf_moe_ablations/LOSSES.md).
+
+Prepared WavLM F4: [last encoder block, existing output family](../scripts/wavlm/F4_LAST_BLOCK.md) — not launched.
 
 ## Separate layer-fusion comparison
 

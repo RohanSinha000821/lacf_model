@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import random
@@ -75,6 +76,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=SEED, help="Training seed and output-run name")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Examples per optimizer step")
     parser.add_argument("--run-name", type=validate_run_name, help="Output family; defaults to wavlm_bs<batch-size>")
+    parser.add_argument("--last-block-only", action="store_true",
+                        help="Prepared F4 only: train encoder block 11 and the unchanged WA backend")
+    parser.add_argument("--source-validation-record", type=Path,
+                        help="Source-only F4 preparation evidence, required with --last-block-only")
 
     parser.add_argument(
         "--num-workers",
@@ -115,6 +120,13 @@ def parse_args() -> argparse.Namespace:
         parser.error("--batch-size must be positive")
     if args.run_name is None:
         args.run_name = f"wavlm_bs{args.batch_size}"
+    if args.last_block_only:
+        if (args.fold, args.seed, args.batch_size, args.run_name) != ("f4", 1234, 96, "wavlm_bs96"):
+            parser.error("The prepared last-block option is F4/seed1234/batch96/wavlm_bs96 only")
+        if args.source_validation_record is None:
+            parser.error("--last-block-only requires --source-validation-record")
+    elif args.source_validation_record is not None:
+        parser.error("--source-validation-record is only for the prepared last-block F4")
 
     return args
 
@@ -205,6 +217,11 @@ def evaluate_eer(
 def main() -> None:
 
     args = parse_args()
+    preparation = None
+    if args.last_block_only:
+        from scripts.wavlm import last_block_support as last_support
+        preparation = last_support.verify_preparation(args.source_validation_record, args.data_root)
+        last_support.configure_runtime(preparation)
 
     fold_name = args.fold
 
@@ -416,11 +433,12 @@ def main() -> None:
         "Loading WavLM-WA..."
     )
 
-    model = WavLMWA(
-        model_name=MODEL_NAME,
-    ).to(
-        device
-    )
+    if args.last_block_only:
+        from audio_deepfake_detection.sota.wavlm_wa_last import LastBlockWavLMWA
+        model = LastBlockWavLMWA().to(device)
+        print("F4 adaptation:", model.adaptation_configuration())
+    else:
+        model = WavLMWA(model_name=MODEL_NAME).to(device)
 
     # =====================================================
     # Optimizer
@@ -435,7 +453,7 @@ def main() -> None:
         [
             {
                 "params":
-                    model.wavlm.parameters(),
+                    [p for p in model.wavlm.parameters() if p.requires_grad],
                 "lr":
                     ENCODER_LR,
             },
@@ -483,6 +501,7 @@ def main() -> None:
     best_epoch = 0
 
     bad_epochs = 0
+    selected_source_scores = None
 
     print()
     print(
@@ -510,6 +529,8 @@ def main() -> None:
         MAX_EPOCHS + 1,
     ):
 
+        if args.last_block_only:
+            last_support.verify_preparation(args.source_validation_record, args.data_root)
         model.train()
 
         running_loss = 0.0
@@ -601,16 +622,16 @@ def main() -> None:
         # =================================================
 
         dev_eers = {}
+        current_source_scores = {}
 
         for dataset_name in source_names:
 
-            eer = evaluate_eer(
-                model,
-                dev_loaders[
-                    dataset_name
-                ],
-                device,
-            )
+            if args.last_block_only:
+                eer, current_source_scores[dataset_name] = last_support.source_scores(
+                    model, dev_loaders[dataset_name], dev_records[dataset_name], dataset_name,
+                    args.data_root, device)
+            else:
+                eer = evaluate_eer(model, dev_loaders[dataset_name], device)
 
             dev_eers[
                 dataset_name
@@ -644,6 +665,8 @@ def main() -> None:
         )
 
         if improved:
+            if args.last_block_only:
+                selected_source_scores = current_source_scores
 
             best_macro_eer = (
                 macro_eer
@@ -759,6 +782,10 @@ def main() -> None:
 
                 "bf16":
                     True,
+                **({"adaptation": model.adaptation_configuration(),
+                    "source_validation_record": str(args.source_validation_record.resolve()),
+                    "source_validation_sha256": last_support.checkpoint_digest(args.source_validation_record)}
+                   if args.last_block_only else {}),
             },
         }
 
@@ -842,6 +869,14 @@ def main() -> None:
         json.dumps(checkpoint["config"], indent=2) + "\n",
         encoding="utf-8",
     )
+    extra_completion = {}
+    if args.last_block_only:
+        last_support.verify_preparation(args.source_validation_record, args.data_root)
+        del model, optimizer, scheduler
+        gc.collect()
+        torch.cuda.empty_cache()
+        extra_completion = last_support.finalize_sources(output_dir, dev_loaders, dev_records,
+            args.data_root, device, best_macro_eer, selected_source_scores)
 
     (output_dir / "training_complete.json").write_text(
         json.dumps({
@@ -851,9 +886,13 @@ def main() -> None:
             "final_epoch": epoch,
             "best_macro_source_dev_eer": best_macro_eer,
             "best_checkpoint": str(best_path),
+            **extra_completion,
         }, indent=2) + "\n",
         encoding="utf-8",
     )
+    if args.last_block_only:
+        last_support.register_source_exports(output_dir, extra_completion)
+        print("COMPLETE: selected F4 source reload/exports/calibration passed; target unopened")
 
     print("=" * 60)
 
