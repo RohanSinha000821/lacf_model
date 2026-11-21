@@ -596,3 +596,112 @@ subsequently authorized fresh F4 training on16November. Target evaluation
 requires its separate completion/source-validation gates and authorization.
 See ../scripts/wavlm/F4_LAST_BLOCK.md and its local evidence. No claim that
 last-block fine-tuning achieves full-fine-tuning performance.
+
+
+### Frozen WavLM-WA(Base+) control,4s preparation
+
+Owner requests a frozen encoder comparison with the LACF backbone. The new
+head trains13uniform-initialized softmax layer weights and a768→2classifier
+(1551parameters) on the shared4sBase+/CLAP cache. This changes the original
+Base/full-FT baseline and its full-recording development policy; it is an
+explicit adapted baseline. Pooled per-layer cache features are mixed after
+temporal pooling, with identical fixed views for all cached-head comparisons.
+Original baseline results are retained. One fixed crop per trainingrecording
+provides no fresh epoch crop diversity; model seeds remain separate. No final
+head fitting or target evaluation is automatically authorized by extraction.
+
+
+## LHCC and NSF-PINN availability review — 20 November 2026
+
+Owner requests investigating these two additional comparison candidates and
+pretrained-weight availability. This review does not fix new recipes or
+launch implementation/training/evaluation. Existing recipes remain unchanged.
+
+| Candidate | Primary publication | Public encoder initialization | Complete detector release status verified in this review |
+| --- | --- | --- | --- |
+| LHCC, Zhang et al. | [Information Fusion 134, 104358 (2026)](https://doi.org/10.1016/j.inffus.2026.104358) | [Official XLS-R 300M](https://huggingface.co/facebook/wav2vec2-xls-r-300m) | No author-linked method repository or trained detector checkpoint confirmed. |
+| NSF-PINN, Sharma and Selwal | [CVIU 271, 104875 (2026)](https://doi.org/10.1016/j.cviu.2026.104875) | [Official WavLM Base+](https://huggingface.co/microsoft/wavlm-base-plus) | No author-linked method repository or trained detector checkpoint confirmed. |
+
+Read the actual supplied LHCC PDF, including its architecture, Algorithm 1,
+experimental recipe and limitations. LHCC compares low/high XLS-R representations
+through AFM and DCM, making it a relevant intra-encoder consistency comparator
+for LACF. The conclusion reports approximately 357.7M total parameters:317.4M
+in a frozen XLS-R and40.3M in AFM/DCM/classifier. Algorithm1 nevertheless includes
+encoder parameters in its optimization set. Preserve this unresolved training-
+scope discrepancy; do not silently choose full fine-tuning or classifier-only
+training. The paper's data-on-request statement is not a code/weight release.
+
+NSF-PINN's publisher abstract/introduction establish WavLM Base+ (not Base), a
+source-filter branch, reconstruction/smoothness/orthogonality objectives and
+SAM. These make it a relevant physics-guided generalization comparator. Its
+full original PDF is absent from both project reference folders; only publisher
+abstract/introduction/section snippets were available in this review. Exact
+branch dimensions, loss weights, encoder training scope and reproduction recipe
+remain unverified until the original is supplied or an official implementation
+is located. Do not reconstruct these from the abstract or secondary summaries.
+
+Searches covered publisher records, exact-title/author web searches and public
+GitHub/Hugging Face repository searches. Failure to locate a release is not
+proof that none exists. Unrelated GitHub links appearing in ResearchGate's
+recommended-paper snippets were not accepted as either method's release.
+Encoder weights alone do not include trained AFM/DCM or source-filter/detector
+modules. Any later released detector checkpoint needs training-data provenance
+checked before use in a held-out-domain study. Source-only four-fold selection
+and calibration remain unchanged; no target results inform implementation.
+
+
+## LHCC / NSF-PINN frozen implementation findings (20–21 November 2026)
+
+The owner supplied NSF-PINN's14-page original after the availability review.
+Saved byte-identically as references/sota/NSF-PINN.pdf, SHA256
+10be852ec3d509019330bc448d09bc5e761431b6bd4eb06056782114a05df6df.
+Read the complete PDF and rendered architecture/Algorithm1–4 images (algorithms
+are image content absent from pdftotext). The earlier missing-original statement
+is now historical. Neither paper identifies a verified complete-detector release
+in the inspected originals; frozen official encoder initialization remains
+separate from a trained detector checkpoint.
+
+NSF Section4.1 establishes WavLM Base+, six frozen/six fine-tuned blocks,
+SAM+AdamW rho0.05/LR3e-4/wd1e-4/batch32/cosine/patience7,4s random training,
+centered inference and zero-padding, plus SpecAugment/Mixup. No numeric physics
+coefficients/augmentation strengths/full maximum epoch count are established.
+The owner requests an entirely frozen encoder and accepts labelled adaptations;
+our variant changes the training scope and omits unspecified augmentation.
+Its1,379,714-parameter detector retains the global projection, framewise shared
+MLP, independent source/filter heads, reconstruction and all physics losses.
+Reusing detached frozen features in both SAM detector passes avoids a redundant
+encoder pass without replacing SAM with ordinary AdamW.
+
+Important original-text/algorithm discrepancies: Eq.27 squares pooled cosine
+but Algorithm2 takes absolute cosine; Eq.30 warms all physics terms but
+Algorithm2 warms only smoothness/orthogonality. Eq.19/23 sum feature-coordinate
+squares while Algorithm2 takes mean MSE/differences and clamps each term0–10.
+The text/Fig.3 specify a two-layer768→768→128 projection, but Algorithm1 draws
+three matrices. Text describes binary sigmoid BCE while figure/algorithm use
+two logits/CE. Our explicit resolutions: squared cosine, all-term two-epoch
+warmup, mean reductions/clamp10, two-layer projection and two-logit CE
+(equivalent to binary BCE on the logit difference). Three physics weights0.1
+are unreported study priors, not recovered author settings. Reconstructor and
+classifier hidden256 are study choices; max100/cosine floor0 are also unreported.
+The paper's table assigns roughly25M to AASIST, inconsistent with the actual
+297866/related graph architectures here; do not inherit that comparison count.
+
+LHCC complete original retains its frozen/joint-training contradiction. The
+owner's frozen-detector request governs this labelled implementation. Preserve
+24 frame sequences partitioned21/3,32-channel asymmetric3:2 Bottle2neck/gated
+AFM and three SE/Transformer DCM blocks sharing first/third MHA only. Figure1
+shows a pooled/flattened22847→1024→2 classifier, whereas prose says global
+average pooling/sigmoid. We follow the figure; unreported Res2Net/bridge/gating/
+Transformer details are assumptions, not verified author architecture. Actual
+trainables40,631,827 need not equal the paper's rounded40.3M. Numeric BF/spoof
+BCE weights0.9/0.1, exact first-crop origin, constantLR and no RawBoost are
+explicit study choices; the paper states RawBoost without its algorithm.
+
+The full fixed recipes, modules and assumptions live in the two model READMEs
+and dated EXPERIMENT_PROTOCOL entry. Keep family names lhcc_frozen_v1 and
+nsf_pinn_frozen_v1; never present these as exact published-method reproductions.
+No architecture or hyperparameter choice used target scores. These native
+~4s variants differ from LACF-MoE10s cached training and class-balanced sampling;
+report differences instead of claiming matched-duration or matched-compute
+validation. No active baseline/main source bytes changed. Synthetic CPU checks
+are separate from pending real-source/GPU validation and training.

@@ -6,6 +6,32 @@ pending; planned outputs are `outputs/experiments/tf2_frozen_clap/f1/seed_1234/`
 
 Experiment navigation and temporary live-job compatibility paths: [experiment layout](docs/EXPERIMENTS_LAYOUT.md).
 
+## Prepared frozen LHCC and NSF-PINN detectors
+
+Owner-approved paper-informed adaptations keep official pretrained XLS-R300M
+or WavLM **Base+** entirely frozen and train each method's detector modules.
+These are not verified author-code reproductions. Architecture assumptions,
+loss discrepancies and native input policies are recorded in the
+[LHCC](scripts/lhcc/README.md) and [NSF-PINN](scripts/nsf_pinn/README.md) notes.
+NSF-PINN retains both SAM passes and all three physics objectives, reusing one
+frozen encoder forward per training batch. No new dependencies are required.
+
+CPU-only inspection reads no pretrained weights, datasets or GPU:
+
+```bash
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 PYTHONPATH=src:. \
+  python scripts/lhcc/train.py --fold f1 --inspect
+CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 PYTHONPATH=src:. \
+  python scripts/nsf_pinn/train.py --fold f1 --inspect
+```
+
+Code preparation does not establish real-data/GPU readiness or authorize a fit.
+Native source-only trainers preserve canonical LODO selection/calibration;
+target evaluators and matched-duration controls are not included in this addition.
+Weights load local-only, checkpoints contain detector weights plus official
+encoder identity, and existing runs are refused. No automatic fold queues or
+resume. See the local handoff for weights availability on each host.
+
 ## SAM-AASIST baseline
 
 The fourth baseline uses a fresh297866-parameter AASIST with two-pass SAM;
@@ -1014,3 +1040,13 @@ validation passed. Run: `outputs/experiments/tf2_frozen_clap/f1/seed_1234/`;
 launch/evidence: `outputs/experiments/tf2_frozen_clap/launch/`. The adapted
 TF2 reference continues; C4 remains held. No new target evaluation. See local
 handoff/live logs for actual progress; full-source completion is still required.
+
+
+### Shared four-second frozen features
+
+A separate source-only cache at `outputs/frozen_features/4s/` supplies pinned
+WavLM Base+ thirteen-layer masked means and CLAP raw projected embeddings.
+Each train recording has one fixed random up-to4s crop; dev uses its center.
+No multi-view aliases, target access or automatic head training. Existing10s
+caches/results remain intact. Frozen WavLM-WA(Base+) has1551trainables; the
+main3expertLACF-MoE retains967338. See `scripts/feature_cache/README.md`.

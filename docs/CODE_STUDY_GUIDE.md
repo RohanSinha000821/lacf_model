@@ -765,3 +765,29 @@ fresh selected-model full-source parity/export/calibration before completion.
 The standard evaluator carries the recorded adaptation scope into its report.
 See [F4 details](../scripts/wavlm/F4_LAST_BLOCK.md); these entry points do not
 authorize a launch or rerun. Active source bytes are preserved during sync.
+
+## Frozen LHCC / NSF-PINN detector preparation (20–21 November 2026)
+
+`scripts/lhcc/train.py` and `scripts/nsf_pinn/train.py` call the small shared
+`sota/frozen_training.py` source-only fitter. `--inspect` builds only the CPU
+detector and prints its recipe/count; no data/encoder download or GPU access.
+On a later authorized fit, canonical source train/dev records create the existing
+equal-domain/natural-class sampler and batch-one dev loaders. Fixed native audio
+policies precede `sota/frozen_frontend.py`, which loads the pinned official model
+locally, forces eval/no-grad, and returns detached frame sequences. It never
+loads a prior fold's trained detector or pooled LACF cache.
+
+`sota/lhcc.py` consumes[B,24,201,1024], runs low/high3:2 Res2Net/gated fusion
+and three partially shared SE/Transformer blocks, then fixed pooling/classifier.
+`sota/nsf_pinn.py` consumes[B,T,768], produces global/source/filter embeddings,
+classification logits and reconstruction, and computes FP32 physics losses.
+The trainer gives detached features to two-pass SAM+AdamW, so the frozen WavLM
+executes once while both detector losses still backpropagate independently.
+
+Discarded source preflight precedes fresh detector/sampler initialization. The
+selected detector is reconstructed from its saved config and official encoder
+identity; all source scores must reload bit-exact and CSV/calibration must
+round-trip before training completion. No target data reader/evaluator, retry,
+overwrite or resume is added. See the two model READMEs for paper conflicts,
+assumed dimensions/loss weights, precision and fairness disclosures. The tests
+in `tests/sota/test_frozen_detectors.py` are synthetic offline CPU checks only.

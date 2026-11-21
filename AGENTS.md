@@ -1,5 +1,269 @@
 # Project working instructions
 
+## Four-second shared frozen features authorized (20 November 2026)
+
+Owner requests the same reusable WavLM Base+/CLAP feature interface at4seconds
+for frozen WavLM-WA Base+ and LACF-MoE. Latest crop decision is ONE fixed
+random common up-to4s interval per source-train recording and ONE centered
+up-to4s interval per source-dev recording; <=4s retains complete audio. No
+multiple training views/crop banks. Crop seed1234 is separate from future
+model seeds. Store13x768 raw validity-mask-pooled WavLM states and512rawCLAP
+projection,FP32storage/BF16forward withFP32normalization/pooling. Keep pinned
+local official revisions and original3+5 concepts. CLAP repeatpads internally
+to10seconds; no extra physical audio. Share eight canonical source train/dev
+partitions acrossfolds, each trainer reads only its six source partitions.
+
+Use new src/features/frozen_4s.py and scripts/feature_cache/; preserve all
+active shared sources/10s caches/results. New source bank outputs/frozen_features/4s/.
+CPU checks plus bounded real-source direct/cache parity, batch/worker timings,
+repeat/serialization checks precede extraction. Equal native WavLM lengths/no
+padding; separate batchedCLAP. Record batch1 numerical drift; identical bank
+shared by future heads. Shard hashes,canonical labels/crops/counts and final
+completion mandatory. No automatic retry/resume/overwrite, targets/external
+sets, final classifier/MoE fits, ablation queues, commit orpush by this request.
+Prepare source-only baseline/MoE training entrypoints; launch fits separately.
+
+Owner expressly permits stopping ONLY the current WavLM Base last-block F4
+job if extraction needs moreGPU. Preserve completed best/last/logs and record
+ownerstop; unsaved epoch work may be lost, no resume claimed. Keep SAMF3 and
+three-seedMoE jobs/sourceguards running. Cache10GiBallocatorcap after12GiB
+free,CPU2/measured8or16preprocessworkers; wait if headroom insufficient.
+Frozen WA Base+ head trains13mixweights+768x2linear=1551parameters, no encoder
+updates; adaptedbaseline disclosure, not original fullyfine-tunedBase recipe.
+
+
+## Full-fold three/four-expert MoE three-seed replication authorized (20 November 2026)
+
+Owner requests both MoE architectures across all four full source folds and
+seeds1234/1235/1236, running alongside current tasks. Reuse all eight completed
+historical BF16 seed1234 training/evaluation cases after hash/config/source
+calibration verification; do not retrain/rescore them. Add exactly16 fresh
+fits/native evaluations:2architectures x4folds xseeds1235/1236. This supersedes
+prior single-seed-only holds for these two models only, not their ablations.
+
+Use original3expert967338params/groupsR0--3,R4--7,R8--12 and original4expert
+1068779params/groupsR0--3,R4--6,R7--9,R10--12. Same original3+5concepts/35-D
+relations/BCEonly/batch132/accum1/AdamW3e-4/wd1e-4/constant/max30/patience5/
+source-macroEERselection. Historical BF16 autocast/sensitiveFP32; actual final
+BF16 logits asserted before float32 export; TF32 disabled. Training seed must
+reach initialization/dropout/sampler/logical-view choice/configs/manifests.
+Physical cached crops remain seed1234 and identical across seeds. Fresh official
+trainable initialization each case; no learned checkpoint initialization.
+
+New isolated scripts/experiments/lacf_moe_multiseed/train.py handles actualseed
+explicitly; do not rebind a hard-coded1234 loop or relabel checkpoints. Reuse
+shared training/metric/cache functions and original model classes. One new
+worker runs16fits/evaluations sequentially, alongside the preserved BF16embedding,
+SAMF3 andWavLMF4 jobs. Only currentfold source partitions retained/shared within
+worker, CPU2/workers0/1GiB tensorcap/>=2GiBGPUfree/allocation+10GiBRAMreserve.
+Discard boundedsource-only GPUupdates/serializedfull-source reload preflight
+before final fitting. Freshselected full-source bitexact reload/export/exact
+calibration/completion and a fresh source gate precede verified cachedtargets.
+No encoder extraction/execution. Keep original target IDs/crops/revisions/hash
+validators and raw/separate transductivez1/5/10/bootstrap1000seed2026 metrics.
+
+New seedfolders append outputs/lacf_moe/<fold>/<seed>/ and its evaluations/;
+fourexpert folders append outputs/experiments/layer_fusion/lacf_layer_moe4/
+<fold>/<seed>/ and outputs/experiments/layer_fusion/evaluations/lacf_layer_moe4/.
+Launch/progress and future summary under outputs/experiments/lacf_moe_multiseed/.
+Summarize all3seeds per fold, mean/sampleSD(ddof1); equal-fold means perseed
+before across-seed summaries. No target pooling, best-seed selection, architecture
+or target-guided tuning, external data, retries/resume/overwrites, other seeds/
+models, SSLF3evaluation restart, commit orpush. Three/fourexpert comparisons
+still differ in layer-group boundaries and parameter capacity.
+
+## BF16 MoE embedding-path comparison authorized (20 November 2026)
+
+Owner requests the direct CLAP embedding path and matched WavLM embedding path
+with the historical BF16 scoring recipe. Run both fresh F1--F4 seed1234 fits
+and fixed-checkpoint native evaluations sequentially: eight fits/evaluations.
+Match historical BF16 training, source selection/scoring, calibration and target
+scoring; sensitive operations FP32 and actual final logits BF16 before export.
+Do not cast the completed FP32 scores or initialize from learned checkpoints.
+Same architectures/1005418params/35+64->99/head99->64->16->1, BCE only, original
+3+5concepts, caches/views/sampling/batch132/AdamW3e-4/wd1e-4/constant/max30/
+patience5. Both frozen audio encoders remain; neither executes. Reuse historical
+main MoE as the reference, preserve all FP32 and historical results.
+
+New model_bf16.py and train_bf16.py under existing experiments embedding-path
+folders reuse guarded BF16 fit/evaluation functions via process-local registry
+bindings. Fresh source-only GPU update/full-source reload proof is discarded
+before final fitting; strict selected-checkpoint full-source parity/export/exact
+calibration/completion before target access. Original verified native target
+caches/IDs/crops/hashes remain mandatory. Report EER/AUROC/raw and separate
+transductive z-score APCER/BPCER/ACER at1/5/10%,1000conditional bootstrap seed2026.
+
+Outputs outputs/experiments/lacf_moe_embedding_paths/bf16/<variant>/<fold>/1234/;
+evaluations in bf16/evaluations/<variant>/<fold>/1234/. One sequential worker,
+current-fold source bank/shared partitions reused, CPU2/workers0/1GiB GPUtensor
+cap/>=2GiBfree and allocation+10GiB RAMreserve. Preserve SAMF3/WavLMF4/source
+guards and stopped SSLF3evaluation hold. No new seeds, other variants, retry/
+resume/overwrite, encoder extraction, external access, target tuning, commit orpush.
+Owner's three-seed question is informational, not authorization to add seeds.
+
+## FP32 ablation and embedding-path evaluations authorized (20 November 2026)
+
+Owner now explicitly queues native P1 evaluation of all 60 FP32 A1--A6,
+B1--B6, C1--C3 full-fold controls and all eight new embedding-path fits,
+F1--F4 seed1234. This supersedes their earlier evaluation holds only. One
+shared sequential worker starts verified completed cases as GPU/RAM allows,
+alternating families when both have ready cases. Entrypoint
+scripts/experiments/lacf_moe_ablations/evaluate_fp32.py. Preserve all trainers,
+guarded sources, historical outputs and the owner-stopped SSL F3 evaluation.
+
+Require immutable producer launch/entry hashes, live or successful producer,
+strict model/objective/config/checkpoint/source cache identity, exact frozen
+FP32 calibration and fresh full-source score bit-exact parity before each
+target. Reuse canonical original cached target features, no encoders or new
+extraction. All scoring heads actually FP32; TF32 disabled. Report EER/AUROC,
+raw and separate transductive z-score APCER/BPCER/ACER at source1%,5%,10%,
+1000 conditional bootstrap/seed2026. No target-guided changes or fitting.
+
+Two CPU threads/zero feature workers/1GiB GPU tensor cap/>=2GiB free. Retain
+only current fold source-dev partitions; stream targets. Require allocation
+plus8GiB host-RAM reserve; release retained partitions under memory pressure
+or while waiting for producers. Shared launch/progress at
+outputs/experiments/lacf_moe_fp32_evaluations/launch/. Results append under each
+training family's fp32/evaluations/<variant-folder>/<fold>/1234/; preserve old
+results. Stop on verification/resource failure, no automatic retry/resume/
+overwrite, external access, other SSL/SOTA evaluation, commit or push.
+
+## Full-fold MoE embedding paths authorized (20 November 2026)
+
+Owner rejects inner fits for this comparison and requests starting both proposed
+paths sequentially using cached features. Train clap_embedding_path and
+wavlm_embedding_control, F1--F4 seed1234:8fresh fits. Train all THREE source
+train partitions per fold; source-dev macro EER selects and calibrates. Reuse
+completed main FP32 MoE as baseline, never initialize learned weights from it.
+Keep original three experts/3+5concepts/35relations, both frozen cached audio
+branches, BCE only. Add LN512->Linear512,64->GELU on normalized CLAP embedding
+or normalized adapted WavLM embedding; concatenate35+64=99, head99->64->16->1.
+Both1005418trainables; matched fresh initialization and original head tail.
+Same batch132/accum1/AdamW3e-4/wd1e-4/constant/max30/patience5/sampling/views;
+all trainable operations/source scoringFP32, TF32 disabled. No encoder execution.
+
+New files stay in experiments/lacf_moe_embedding_paths under src/scripts/tests;
+reuse FP32 fitter through process-local registry bindings, no guarded source
+edits. Sequential F1CLAP->F1WavLM->F2CLAP->F2WavLM->...->F4WavLM in one worker.
+Preserve existing ablation/SAMF3/WavLMF4 jobs and source guards. 2CPUthreads,
+0featureworkers,1GiB tensor cap/>=2GiB GPUfree. Load only current fold's six
+source cache partitions, retain shared ones, drop excluded ones before loading
+more; existing canonical/payload hashes remain mandatory, finite scans bounded.
+CPU checks and discarded source-only GPU dtype/update/full serialized reload
+precede each fresh fit. Selected full-source reload/export/calibration/completion
+must pass before advancement. Outputs outputs/experiments/lacf_moe_embedding_paths/
+fp32/<variant>/<fold>/1234/. Historical outputs unchanged. No inner fits, new seeds,
+other variants, target/external evaluation, retry/resume/overwrite, commit orpush.
+
+## Main FP32 LACF-MoE parallel native evaluation authorized (20 November 2026)
+
+Owner requests evaluation alongside the active FP32 ablation/SOTA jobs after
+main FP32 F1--F4 training completed successfully. Evaluate those four fixed
+seed1234 checkpoints only, via new scripts/lacf_moe/evaluate_fp32.py and existing
+verified native target caches; no encoders/extraction or duplicate train bank.
+Keep actual trainable scoring FP32 and TF32 disabled, source-selected checkpoints
+and frozen per-fold FP32 source calibration. Before each target, fresh full-source
+FP32 scores must match saved vectors bit-exactly. Canonical targets/crops/cache
+revisions/payload hashes remain strict. Output outputs/lacf_moe/fp32/evaluations/.
+
+Report EER/AUROC, raw and separate transductive z-score APCER/BPCER/ACER at
+source1%,5%,10%,1000conditional bootstrap/seed2026. Disclose fixed historical
+encoder extraction, single seed and prior target exposure. Two CPU threads,
+zero feature workers,1GiB GPU tensor allocator cap,>=2GiB CUDAfree; source-dev
+features only retained in RAM and target shards streamed. Preserve all active
+ablation/SAMF3/WavLMF4 source guards and original artifacts. Stop on failure;
+no fallback/retry/resume/overwrite, new fitting/tuning, external data, automatic
+ablation/SSL/SOTA evaluation, commit or push. SSLF3 evaluation hold remains.
+
+## FP32 LACF-MoE ablations queued after main FP32 training (19 November 2026)
+
+Owner requests queueing all existing MoE ablations after the current main FP32
+F1--F4 run. New isolated scripts/experiments/lacf_moe_ablations/train_fp32.py
+queues A1--A6, B1--B6, C1--C3 x F1--F4, seed1234:60fresh source-only fits.
+Reuse completed FP32 main folds as A0/C0, never historical BF16 references.
+Keep each architecture/loss weight, cached input views, sampling, batch132,
+AdamW3e-4/wd1e-4/constant/max30/patience5 unchanged. Trainable operations and
+source scoring FP32, autocast/TF32 disabled, including selection/calibration.
+Frozen encoder extraction stays unchanged. No main/shared model or active source
+bytes modified. Preserve both running SOTA trainers and main FP32 queue guards.
+
+Dependent queue waits CPU-only, without CUDA initialization/cache loading, until
+main launch/exit.json confirms trainer0/logger0/verified_complete and all four
+hash-bound completions. Parent failure/disappearance stops it, no retry. Then
+load the same source cache once and sequentially preflight/fresh-fit each control,
+with full-source selected reload/export/calibration/completion before advancing.
+2CPUthreads/0featureworkers/1GiB tensor allocator cap; >=75GiB RAM/2GiB GPUfree.
+Outputs outputs/experiments/lacf_moe_ablations/fp32/<ID_name>/<fold>/1234/.
+No target/external evaluation, new CLAP repair/random anchors, three-seed inner
+replication, other variants/seeds, resume/retry/overwrite, commit or push.
+
+## LACF-MoE cached FP32 F1--F4 training authorized (19 November 2026)
+
+Owner requests fresh three-expert LACF-MoE training using existing cached features,
+with scores/checkpoints in outputs/lacf_moe/fp32/<fold>/1234/. Original BF16 runs
+remain intact. Only precision changes: all trainable forward/backward/scoring in
+FP32, autocast and TF32 disabled; frozen encoder cache/extraction remains unchanged.
+Retain 967338 parameters, original 3+5 concepts, detection BCE only, seed1234,
+batch132/accumulation1/AdamW3e-4/wd1e-4/constant/max30/patience5, equal domain/class
+replacement and existing fixed views. Source macro EER selects; fresh full-source
+selected-checkpoint reload, source CSV export/calibration and completion gates each
+fold. Isolated scripts/lacf_moe/train_fp32.py; do not edit original/shared guarded
+training/model sources. CPU checks and discarded source-only GPU dtype/memory/
+serialized-reload checks precede fresh fits. Queue F1->F2->F3->F4, 2 CPU threads,
+0 feature workers, 1GiB tensor allocator budget and >=2GiB initial GPU free.
+Preserve SAM F3/WavLM F4 and their guards. No target/external evaluation, encoder
+extraction, other variants/seeds, retry/resume/overwrite, commit or push authorized.
+
+## SSL-last F3 evaluation queue stopped by owner (18 November 2026)
+
+Owner explicitly stops the waiting F3 evaluation and will decide after current
+training finishes. Do not restart its queue or evaluation automatically when
+GPU memory becomes free. Preserve the prepared evaluator, source checks and all
+launch records; target scoring never started. SAM F3 and WavLM F4 stay running.
+A later explicit evaluation request is required. This supersedes the automatic
+memory-wait advancement in the preceding F3 evaluation authorization only.
+
+## SSL-last F3 native evaluation authorized (18 November 2026)
+
+Owner requests native P1 evaluation of completed ssl_gating_last F3 seed1234.
+Use selected epoch7/source macroEER6.1029566%, successful final recovery-producer
+exit and exact checkpoint/completion/source exports/calibration. New isolated
+evaluate_last_f3.py preserves active SAM F3/WavLM F4 and all guarded sources.
+Normalize ONLY the recorded missing/null frontend attn_implementation serialization
+key; actual model backend and every other config/runtime field remain strict.
+Retain F3 deterministic algorithms/CUBLAS :4096:8/max_split_size_mb:128, full
+unpadded batch1/BF16-sensitiveFP32,4workers/prefetch2/CPU2. CPU-only queue waits
+for11GiB free before CUDA; actual gate10GiB free,8GiB evaluation allocator cap.
+Never stop or resize existing jobs for headroom. Fresh first/tail and full129.75s
+SpeechFake source parity precede ASV5 eval access. Reuse training's fully reloaded
+hash-bound source exports; no unnecessary complete source encoder rerun.
+Report EER/AUROC and raw/separate transductive APCER/BPCER/ACER at1%,5%,10%,
+1000conditional bootstrap/seed2026. Preserve checkpoints, scores and old results;
+append to F3/1234 with launch evidence in F3/evaluation/. Stop on failure, no
+automatic retry/resume/overwrite, other folds/models/external data, tuning,
+training changes, download, commit orpush.
+
+
+## Conditional SAM-AASIST F4 queue authorized (18 November 2026)
+
+Owner requests fresh F4 seed1234 on SSH1 IF current F2 early-stops. Queue only
+after F2's full selected-source reload/export/calibration completion, matching
+checkpoint/config/source identities, successful producer exit and GPU release.
+Do not interrupt or shorten F2. If it fails or does not early-stop, do not launch
+F4. Preserve active F2 and all SSH2 jobs/source bytes.
+
+Use unchanged SAM297866params/pooling0.5/batch24/FP32/two-pass SAMrho0.05,
+Adam1e-4/wd1e-4/per-update cosine floor5e-6/max100/patience5/CE0.9:0.1,
+RawBoostoff/random64600train/first64600dev/repeatshort and source macroEER.
+Fresh random initialization; no F2/F3/probe/checkpoint reuse or training resume.
+Retain latest24train/8devworkers,prefetch4/CPUthreads2 and no configured memory
+cap. Require24GiB live GPUfree and passed F4 source-only cached readiness plus
+discarded finite-update/reload checks before final launch. Sources ASV5/CFAD/
+SpeechFake only; use the existing local audio cache, no raw/shared-storage or
+pretrained dependency. Keep outputs/sam_aasist/f4/1234/ fresh. The one-fold queue
+and evidence live in outputs/sam_aasist/f4/launch/. Stop on failure, no automatic
+retry/overwrite, target evaluation, other seeds/folds, recipe change or publication.
+
 ## WavLM-WA F4 last-block training authorized (16 November 2026)
 
 Owner now requests starting the prepared fresh F4 seed1234 run. This overrides
@@ -818,3 +1082,26 @@ batch-one FP32 scoring and shared P1 raw/transductive/bootstrap contracts.
 Reuse already full-reload-verified source exports without unnecessary complete
 source encoder reruns. Stop on failure; no automatic retry/resume, overwrite,
 other folds/seeds, F2 targets, target-guided tuning or publication is authorized.
+
+
+## SAM-AASIST F2 native evaluation authorized (18 November 2026)
+
+Owner requests native P1 evaluation of completed SAM-AASIST F2 seed1234 on
+SSH1. This supersedes the earlier CFAD target hold for this fixed checkpoint
+only. Use selected epoch5 after verified producer exit0, checkpoint/config/
+completion/runtime identities, canonical source score hashes and exact trained
+calibration. Reuse the source exports already verified by full selected-model
+reload; freshly reproduce bounded first/middle/tail source scores bit-exact
+before opening CFAD clean unseen test. Preserve pooling0.5/FP32, first64600
+samples after16kHz resampling/repeat-short, batch1, matmul TF32off/cuDNN TF32on,
+8workers/prefetch4/CPUthreads2 and no configured GPU memory ceiling. Check live
+headroom and retain running SAM F4 and every guarded source byte.
+
+Use existing scripts/sam_aasist/evaluate.py and local audio cache. Retain all
+shared EER/AUROC and raw/separately labelled transductive z-score APCER/BPCER/
+ACER at source1%,5%,10% APCER,1000conditional bootstraps/seed2026. Preserve
+training/source records; append hash-bound manifest/source-validation/target/
+metrics/evaluation-completion only after gates. Launch evidence under
+outputs/sam_aasist/f2/evaluation/. Stop on failure without crop/skip/fallback,
+automatic retry/resume/overwrite, changes to F4, other fold/seed/model launches,
+external evaluation, target-guided tuning, commit or push.

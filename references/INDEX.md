@@ -40,6 +40,7 @@ The papers explain dataset design; the official protocols/metadata and shared da
 | [SSL Feature gating.pdf](</mnt/drive/rohan/audio-deepfake-detection/references/sota/SSL Feature gating.pdf>) | Multi-level SSL feature-gating implementation and recipe. |
 | [SAM Anti Spoofing.pdf](</mnt/drive/rohan/audio-deepfake-detection/references/sota/SAM Anti Spoofing.pdf>) | SAM anti-spoofing optimizer/method and underlying model recipe. |
 | [LHCC.pdf](</mnt/drive/rohan/audio-deepfake-detection/references/sota/LHCC.pdf>) | LHCC architecture, losses and encoder-training interpretation. |
+| [NSF-PINN.pdf](</mnt/drive/rohan/audio-deepfake-detection/references/sota/NSF-PINN.pdf>) | NSF-PINN source-filter architecture, physics objectives and SAM; supplied 20 November 2026. |
 
 ## Persistent working records
 
@@ -63,3 +64,11 @@ Source attachment groups:
 The PDF/DOCX copies are intentionally ignored by Git to avoid accidentally publishing supplied plans and third-party full papers. The index, checksums and project notes can be versioned. Back up the binary reference folder separately; a code-only clone will not include these documents. No documents were pushed or shared externally by this organization step.
 
 This is a reference index, not a claim that every newly supplied document has been reread in full. Inspect the relevant original document when a task depends on its details and record any new findings in the working notes.
+
+Later addition,20November2026: the owner supplied the14-page NSF-PINN publisher
+PDF (`1-s2.0-S1077314226002420-main.pdf`). Its local copy `sota/NSF-PINN.pdf`
+was compared byte-for-byte with the attachment and appended to SHA256SUMS.
+The original fourteen-file provenance above remains historical; there are now
+fifteen indexed originals. The new PDF remains ignored/local-only. Read its
+algorithms as rendered images as well as its text; they differ in several loss
+details from the equations, recorded in the model preparation notes.
